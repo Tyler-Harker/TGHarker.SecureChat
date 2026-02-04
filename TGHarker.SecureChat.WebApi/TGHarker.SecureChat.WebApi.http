@@ -1,0 +1,6 @@
+@TGHarker.SecureChat.WebApi_HostAddress = http://localhost:5280
+
+GET {{TGHarker.SecureChat.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

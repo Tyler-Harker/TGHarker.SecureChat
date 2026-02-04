@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="TGHarker.SecureChat.AppHost/TGHarker.SecureChat.AppHost.csproj" />
+  <Project Path="TGHarker.SecureChat.ServiceDefaults/TGHarker.SecureChat.ServiceDefaults.csproj" />
+  <Project Path="TGHarker.SecureChat.Silo/TGHarker.SecureChat.Silo.csproj" />
+  <Project Path="TGHarker.SecureChat.WebApi/TGHarker.SecureChat.WebApi.csproj" />
+</Solution>

@@ -1,0 +1,6 @@
+@TGHarker.SecureChat.Silo_HostAddress = http://localhost:5160
+
+GET {{TGHarker.SecureChat.Silo_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
