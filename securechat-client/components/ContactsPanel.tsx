@@ -6,7 +6,7 @@ import { apiClient, type Contact } from "@/lib/api-client";
 
 interface ContactsPanelProps {
   onClose?: () => void;
-  onStartConversation?: (contact: Contact) => void;
+  onStartConversation?: (contacts: Contact[]) => void;
   onGenerateInvite?: () => void;
   showHeader?: boolean;
 }
@@ -290,7 +290,7 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                       </button>
                       {onStartConversation && (
                         <button
-                          onClick={() => onStartConversation(contact)}
+                          onClick={() => onStartConversation([contact])}
                           className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
                           title="Start conversation"
                         >

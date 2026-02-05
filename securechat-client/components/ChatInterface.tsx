@@ -87,16 +87,17 @@ export default function ChatInterface() {
     setSelectedConversationId(null);
   };
 
-  const handleStartConversationWithContact = useCallback(async (contact: Contact) => {
-    if (!user?.sub) return;
+  const handleStartConversationWithContact = useCallback(async (contacts: Contact[]) => {
+    if (!user?.sub || contacts.length === 0) return;
 
-    // Check if a conversation already exists with this contact
-    const existingConversation = conversations.find(
-      (conv) =>
-        conv.participantUserIds.length === 2 &&
-        conv.participantUserIds.includes(contact.userId) &&
-        conv.participantUserIds.includes(user.sub)
-    );
+    // Build participant list including current user
+    const participantUserIds = [user.sub, ...contacts.map((c) => c.userId)];
+
+    // Check if exact conversation exists with these participants
+    const existingConversation = conversations.find((conv) => {
+      if (conv.participantUserIds.length !== participantUserIds.length) return false;
+      return participantUserIds.every((id) => conv.participantUserIds.includes(id));
+    });
 
     if (existingConversation) {
       // Select the existing conversation
@@ -105,10 +106,8 @@ export default function ChatInterface() {
       return;
     }
 
-    // Create a new conversation with this contact
+    // Create a new conversation with these contacts
     try {
-      const participantUserIds = [user.sub, contact.userId];
-
       // Generate placeholder encrypted keys
       const encryptedConversationKeys: Record<string, string> = {};
       for (const participantId of participantUserIds) {

@@ -35,4 +35,10 @@ public class UserGrainState
 
     [Id(9)]
     public Dictionary<string, string> ContactNicknames { get; set; } = new();
+
+    [Id(10)]
+    public Dictionary<string, string> SentContactRequests { get; set; } = new(); // requestId -> toUserId
+
+    [Id(11)]
+    public Dictionary<string, string> ReceivedContactRequests { get; set; } = new(); // requestId -> fromUserId
 }

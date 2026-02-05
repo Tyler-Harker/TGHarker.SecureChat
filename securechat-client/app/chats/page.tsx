@@ -57,18 +57,17 @@ function ChatsContent() {
     }
   };
 
-  const handleStartConversation = async (contact: Contact) => {
-    if (!user?.sub) return;
+  const handleStartConversation = async (contacts: Contact[]) => {
+    if (!user?.sub || contacts.length === 0) return;
 
-    const contactId = contact.userId;
+    // Build participant list including current user
+    const participantUserIds = [user.sub, ...contacts.map((c) => c.userId)];
 
-    // Check if conversation exists
-    const existingConversation = conversations.find(
-      (conv) =>
-        conv.participantUserIds.length === 2 &&
-        conv.participantUserIds.includes(contactId) &&
-        conv.participantUserIds.includes(user.sub)
-    );
+    // Check if exact conversation exists with these participants
+    const existingConversation = conversations.find((conv) => {
+      if (conv.participantUserIds.length !== participantUserIds.length) return false;
+      return participantUserIds.every((id) => conv.participantUserIds.includes(id));
+    });
 
     if (existingConversation) {
       router.push(`/chats?conversation=${existingConversation.conversationId}`);
@@ -77,7 +76,6 @@ function ChatsContent() {
 
     // Create new conversation
     try {
-      const participantUserIds = [user.sub, contactId];
       const encryptedConversationKeys: Record<string, string> = {};
 
       for (const participantId of participantUserIds) {
@@ -289,7 +287,7 @@ function ChatsContent() {
       <ContactPickerModal
         isOpen={showContactPicker}
         onClose={() => setShowContactPicker(false)}
-        onSelectContact={handleStartConversation}
+        onSelectContacts={handleStartConversation}
       />
     </div>
   );

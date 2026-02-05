@@ -64,6 +64,16 @@ export interface Contact {
   nickname?: string;
 }
 
+export interface ContactRequest {
+  requestId: string;
+  fromUserId: string;
+  toUserId: string;
+  fromUserDisplayName: string;
+  fromUserEmail: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: string;
+}
+
 export interface CreateInviteResponse {
   inviteId: string;
   inviteSecret: string;
@@ -235,6 +245,33 @@ export class ApiClient {
       {
         method: "DELETE",
       }
+    );
+  }
+
+  // ===== Contact Request Endpoints =====
+
+  async sendContactRequest(userId: string): Promise<{ requestId: string; message: string }> {
+    return this.fetch<{ requestId: string; message: string }>(
+      `/api/contacts/request/${encodeURIComponent(userId)}`,
+      { method: "POST" }
+    );
+  }
+
+  async getPendingContactRequests(): Promise<ContactRequest[]> {
+    return this.fetch<ContactRequest[]>("/api/contacts/requests/pending");
+  }
+
+  async acceptContactRequest(requestId: string): Promise<{ message: string; contact: Contact }> {
+    return this.fetch<{ message: string; contact: Contact }>(
+      `/api/contacts/requests/${encodeURIComponent(requestId)}/accept`,
+      { method: "POST" }
+    );
+  }
+
+  async declineContactRequest(requestId: string): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/contacts/requests/${encodeURIComponent(requestId)}/decline`,
+      { method: "POST" }
     );
   }
 

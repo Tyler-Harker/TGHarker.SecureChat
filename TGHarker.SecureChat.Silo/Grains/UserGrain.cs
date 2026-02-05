@@ -359,4 +359,47 @@ public class UserGrain : Grain, IUserGrain
                 _state.State.UserId, contactUserId);
         }
     }
+
+    public async Task AddSentContactRequestAsync(string requestId, string toUserId)
+    {
+        _state.State.SentContactRequests[requestId] = toUserId;
+        await _state.WriteStateAsync();
+
+        _logger.LogInformation("User {UserId} added sent contact request {RequestId} to {ToUserId}",
+            _state.State.UserId, requestId, toUserId);
+    }
+
+    public async Task AddReceivedContactRequestAsync(string requestId, string fromUserId)
+    {
+        _state.State.ReceivedContactRequests[requestId] = fromUserId;
+        await _state.WriteStateAsync();
+
+        _logger.LogInformation("User {UserId} added received contact request {RequestId} from {FromUserId}",
+            _state.State.UserId, requestId, fromUserId);
+    }
+
+    public async Task RemoveContactRequestAsync(string requestId)
+    {
+        var removed = _state.State.SentContactRequests.Remove(requestId) ||
+                     _state.State.ReceivedContactRequests.Remove(requestId);
+
+        if (removed)
+        {
+            await _state.WriteStateAsync();
+            _logger.LogInformation("User {UserId} removed contact request {RequestId}",
+                _state.State.UserId, requestId);
+        }
+    }
+
+    public Task<List<string>> GetReceivedContactRequestIdsAsync()
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        return Task.FromResult(_state.State.ReceivedContactRequests.Keys.ToList());
+    }
 }

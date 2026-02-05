@@ -113,4 +113,28 @@ public interface IUserGrain : IGrainWithStringKey
     /// Requires: Caller must be the user themselves.
     /// </summary>
     Task RemoveContactNicknameAsync(string contactUserId);
+
+    /// <summary>
+    /// Adds a pending contact request sent by this user.
+    /// Called by ContactRequestGrain when a request is created.
+    /// </summary>
+    Task AddSentContactRequestAsync(string requestId, string toUserId);
+
+    /// <summary>
+    /// Adds a pending contact request received by this user.
+    /// Called by ContactRequestGrain when a request is created.
+    /// </summary>
+    Task AddReceivedContactRequestAsync(string requestId, string fromUserId);
+
+    /// <summary>
+    /// Removes a contact request (sent or received).
+    /// Called by ContactRequestGrain when a request is accepted/declined.
+    /// </summary>
+    Task RemoveContactRequestAsync(string requestId);
+
+    /// <summary>
+    /// Gets all pending contact requests received by this user.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task<List<string>> GetReceivedContactRequestIdsAsync();
 }

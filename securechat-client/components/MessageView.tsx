@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiClient, type Message } from "@/lib/api-client";
+import { apiClient, type Message, type Conversation, type Contact, type ContactRequest } from "@/lib/api-client";
 import { base64ToUint8Array, uint8ArrayToBase64 } from "@/lib/crypto";
 
 interface MessageViewProps {
@@ -13,6 +13,8 @@ interface MessageViewProps {
 export default function MessageView({ conversationId, onBack }: MessageViewProps) {
   const { user, accessToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -22,6 +24,8 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [contactRequests, setContactRequests] = useState<Map<string, ContactRequest>>(new Map());
+  const [sentContactRequests, setSentContactRequests] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -107,6 +111,27 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
               return m;
             })
           );
+        } else if (data.type === "contact_request") {
+          // Received a contact request
+          const request = data.request as ContactRequest;
+          setContactRequests((prev) => new Map(prev).set(request.fromUserId, request));
+        } else if (data.type === "contact_request_accepted") {
+          // Contact request was accepted
+          const contact = data.contact as Contact;
+          setContacts((prev) => [...prev, contact]);
+          setSentContactRequests((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(contact.userId);
+            return newSet;
+          });
+        } else if (data.type === "contact_request_declined") {
+          // Contact request was declined
+          const userId = data.userId as string;
+          setSentContactRequests((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(userId);
+            return newSet;
+          });
         }
       } catch (err) {
         console.error("Failed to parse SSE event:", err);
@@ -170,13 +195,30 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
   const loadMessages = async () => {
     setIsLoading(true);
     try {
-      const fetchedMessages = await apiClient.getMessages(conversationId);
+      const [fetchedMessages, conversationData, contactsData] = await Promise.all([
+        apiClient.getMessages(conversationId),
+        apiClient.getConversation(conversationId),
+        apiClient.getMyContacts(),
+      ]);
       setMessages(fetchedMessages);
+      setConversation(conversationData);
+      setContacts(contactsData);
     } catch (error) {
       console.error("Failed to load messages:", error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getDisplayName = (userId: string): string => {
+    if (userId === user?.sub) {
+      return "You";
+    }
+    const contact = contacts.find((c) => c.userId === userId);
+    if (contact) {
+      return contact.nickname || contact.displayName;
+    }
+    return "Unknown User";
   };
 
   const scrollToBottom = () => {
@@ -308,6 +350,56 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
     }
   };
 
+  const handleSendContactRequest = async (userId: string) => {
+    try {
+      await apiClient.sendContactRequest(userId);
+      setSentContactRequests((prev) => new Set(prev).add(userId));
+    } catch (error) {
+      console.error("Failed to send contact request:", error);
+      alert("Failed to send contact request. Please try again.");
+    }
+  };
+
+  const handleAcceptContactRequest = async (request: ContactRequest) => {
+    try {
+      const result = await apiClient.acceptContactRequest(request.requestId);
+      setContacts((prev) => [...prev, result.contact]);
+      setContactRequests((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(request.fromUserId);
+        return newMap;
+      });
+    } catch (error) {
+      console.error("Failed to accept contact request:", error);
+      alert("Failed to accept contact request. Please try again.");
+    }
+  };
+
+  const handleDeclineContactRequest = async (request: ContactRequest) => {
+    try {
+      await apiClient.declineContactRequest(request.requestId);
+      setContactRequests((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(request.fromUserId);
+        return newMap;
+      });
+    } catch (error) {
+      console.error("Failed to decline contact request:", error);
+      alert("Failed to decline contact request. Please try again.");
+    }
+  };
+
+  const getUnknownParticipants = (): string[] => {
+    if (!conversation) return [];
+    return conversation.participantUserIds.filter(
+      (id) =>
+        id !== user?.sub &&
+        !contacts.some((c) => c.userId === id) &&
+        !sentContactRequests.has(id) &&
+        !contactRequests.has(id)
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -347,10 +439,32 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
             )}
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
-                Conversation
+                {conversation ? (() => {
+                  const otherParticipants = conversation.participantUserIds.filter(
+                    (id) => id !== user?.sub
+                  );
+
+                  if (otherParticipants.length === 0) {
+                    return "You";
+                  } else if (otherParticipants.length === 1) {
+                    return getDisplayName(otherParticipants[0]);
+                  } else {
+                    const names = otherParticipants.slice(0, 2).map(getDisplayName);
+                    const remaining = otherParticipants.length - 2;
+                    if (remaining > 0) {
+                      return `${names.join(", ")} +${remaining}`;
+                    }
+                    return names.join(", ");
+                  }
+                })() : "Conversation"}
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {messages.filter((m) => !m.parentMessageId).length} messages
+                {conversation && conversation.participantUserIds.length > 2 && (
+                  <span className="ml-1">
+                    • {conversation.participantUserIds.length} participants
+                  </span>
+                )}
               </p>
             </div>
             <button
@@ -364,6 +478,88 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
             </button>
           </div>
         </div>
+
+        {/* Contact Request Banners */}
+        {(() => {
+          const unknownParticipants = getUnknownParticipants();
+          const incomingRequests = Array.from(contactRequests.values());
+
+          return (
+            <>
+              {/* Show banner for unknown participants */}
+              {unknownParticipants.length > 0 && (
+                <div className="border-b border-gray-200 bg-yellow-50 p-3 dark:border-gray-700 dark:bg-yellow-900/20">
+                  <div className="flex items-center gap-3">
+                    <svg className="h-5 w-5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                        Chatting with unknown user{unknownParticipants.length > 1 ? "s" : ""}
+                      </p>
+                      <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                        Request contact info to see their profile
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => unknownParticipants.forEach(handleSendContactRequest)}
+                      className="rounded-lg bg-yellow-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-yellow-700"
+                    >
+                      Request Contact Info
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Show banner for incoming contact requests */}
+              {incomingRequests.map((request) => (
+                <div key={request.requestId} className="border-b border-gray-200 bg-blue-50 p-3 dark:border-gray-700 dark:bg-blue-900/20">
+                  <div className="flex items-center gap-3">
+                    <svg className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                        {request.fromUserDisplayName} wants to share contact info
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        {request.fromUserEmail}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleAcceptContactRequest(request)}
+                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => handleDeclineContactRequest(request)}
+                        className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Show banner for sent requests pending response */}
+              {Array.from(sentContactRequests).map((userId) => (
+                <div key={userId} className="border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                  <div className="flex items-center gap-3">
+                    <svg className="h-5 w-5 flex-shrink-0 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="flex-1 text-sm text-gray-700 dark:text-gray-300">
+                      Contact request sent to {getDisplayName(userId)}. Waiting for response...
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </>
+          );
+        })()}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto bg-gray-50 p-3 dark:bg-gray-900 sm:p-4">
@@ -390,8 +586,13 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
                     }}
                     data-message-id={message.messageId}
                     data-sender-id={message.senderId}
-                    className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
+                    className={`flex flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
                   >
+                    {!isOwnMessage && (
+                      <span className="mb-1 px-1 text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {getDisplayName(message.senderId)}
+                      </span>
+                    )}
                     <div
                       className={`max-w-[85%] rounded-lg px-3 py-2 sm:max-w-[70%] sm:px-4 ${
                         isOwnMessage
@@ -520,7 +721,7 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
                 {/* Original Message */}
                 <div className="rounded-lg border-2 border-blue-200 bg-white p-3 dark:border-blue-800 dark:bg-gray-800">
                   <div className="mb-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
-                    Original Message
+                    Original Message · {getDisplayName(activeThread.senderId)}
                   </div>
                   <div className="break-words text-gray-900 dark:text-white">
                     {decryptMessage(activeThread)}
@@ -538,8 +739,13 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
                   return (
                     <div
                       key={reply.messageId}
-                      className={`flex ${isOwnReply ? "justify-end" : "justify-start"}`}
+                      className={`flex flex-col ${isOwnReply ? "items-end" : "items-start"}`}
                     >
+                      {!isOwnReply && (
+                        <span className="mb-1 px-1 text-xs font-medium text-gray-600 dark:text-gray-400">
+                          {getDisplayName(reply.senderId)}
+                        </span>
+                      )}
                       <div
                         className={`max-w-[85%] rounded-lg px-3 py-2 ${
                           isOwnReply
