@@ -4,6 +4,8 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type ContactInviteInfo, type Contact } from "@/lib/api-client";
+import SplashScreen from "@/components/SplashScreen";
+import AuthGuard from "@/components/AuthGuard";
 
 type InviteState =
   | { status: "loading" }
@@ -16,7 +18,7 @@ type InviteState =
 function InviteAcceptContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading, login, user } = useAuth();
+  const { user } = useAuth();
   const [state, setState] = useState<InviteState>({ status: "loading" });
 
   const inviteId = searchParams.get("id");
@@ -29,15 +31,8 @@ function InviteAcceptContent() {
       return;
     }
 
-    // Wait for auth to finish loading
-    if (authLoading) {
-      return;
-    }
-
-    // Require authentication - redirect to login if not authenticated
-    if (!isAuthenticated) {
-      const currentUrl = `/contacts/invite?id=${inviteId}&secret=${encodeURIComponent(inviteSecret)}&code=${encodeURIComponent(inviteSecretCode)}`;
-      login(currentUrl);
+    // Only load invite if we're in the loading state (haven't loaded yet)
+    if (state.status !== "loading") {
       return;
     }
 
@@ -69,7 +64,7 @@ function InviteAcceptContent() {
     };
 
     loadInvite();
-  }, [inviteId, inviteSecret, inviteSecretCode, isAuthenticated, authLoading, user?.sub, login]);
+  }, [inviteId, inviteSecret, inviteSecretCode, user?.sub, state.status]);
 
   const handleAccept = async () => {
     if (!inviteId || !inviteSecret || !inviteSecretCode) return;
@@ -93,19 +88,13 @@ function InviteAcceptContent() {
   };
 
   const handleGoToContacts = () => {
-    router.push("/");
+    router.push("/contacts");
   };
 
   // Render based on state
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4 dark:bg-gray-900">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg dark:bg-gray-800">
-        {state.status === "loading" && (
-          <div className="flex flex-col items-center">
-            <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-            <p className="text-gray-600 dark:text-gray-300">Loading invite...</p>
-          </div>
-        )}
 
         {state.status === "invalid" && (
           <div className="text-center">
@@ -246,14 +235,10 @@ function InviteAcceptContent() {
 
 export default function InviteAcceptPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center bg-gray-100 dark:bg-gray-900">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-        </div>
-      }
-    >
-      <InviteAcceptContent />
-    </Suspense>
+    <AuthGuard>
+      <Suspense fallback={<SplashScreen />}>
+        <InviteAcceptContent />
+      </Suspense>
+    </AuthGuard>
   );
 }

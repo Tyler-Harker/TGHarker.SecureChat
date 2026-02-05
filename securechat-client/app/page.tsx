@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense } from "react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import ChatInterface from "@/components/ChatInterface";
 import LandingPage from "@/components/LandingPage";
 
 function LoadingSpinner() {
@@ -19,17 +19,18 @@ function LoadingSpinner() {
 }
 
 export default function Home() {
+  const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.push("/chats");
+    }
+  }, [isAuthenticated, isLoading, router]);
 
   if (isLoading) {
     return <LoadingSpinner />;
   }
 
-  return isAuthenticated ? (
-    <Suspense fallback={<LoadingSpinner />}>
-      <ChatInterface />
-    </Suspense>
-  ) : (
-    <LandingPage />
-  );
+  return isAuthenticated ? <LoadingSpinner /> : <LandingPage />;
 }

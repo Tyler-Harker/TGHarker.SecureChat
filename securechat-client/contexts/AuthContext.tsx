@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useCallback } from "react";
 import { AuthProvider as OidcAuthProvider, useAuth as useOidcAuth, AuthProviderProps } from "react-oidc-context";
 import { WebStorageStateStore } from "oidc-client-ts";
 import { apiClient } from "@/lib/api-client";
@@ -66,12 +66,16 @@ export function getAndClearReturnUrl(): string | null {
 export function useAuth() {
   const auth = useOidcAuth();
 
-  const login = (returnTo?: string) => {
+  const login = useCallback((returnTo?: string) => {
     if (returnTo) {
       storeReturnUrl(returnTo);
     }
     auth.signinRedirect();
-  };
+  }, [auth]);
+
+  const logout = useCallback(() => {
+    auth.signoutRedirect();
+  }, [auth]);
 
   return {
     user: auth.user?.profile
@@ -85,6 +89,6 @@ export function useAuth() {
     isLoading: auth.isLoading,
     isAuthenticated: auth.isAuthenticated,
     login,
-    logout: () => auth.signoutRedirect(),
+    logout,
   };
 }

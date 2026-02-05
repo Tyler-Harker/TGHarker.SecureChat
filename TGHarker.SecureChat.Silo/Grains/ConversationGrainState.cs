@@ -47,6 +47,13 @@ public class ConversationGrainState
     [Id(9)]
     public Dictionary<Guid, List<Guid>> MessageReplies { get; set; } = new();
 
+    /// <summary>
+    /// Maps message IDs to the set of user IDs who have read them.
+    /// Used for read receipts.
+    /// </summary>
+    [Id(11)]
+    public Dictionary<Guid, HashSet<string>> MessageReadReceipts { get; set; } = new();
+
     [Id(10)]
     public bool IsCreated { get; set; }
 }

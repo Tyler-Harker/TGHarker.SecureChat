@@ -31,5 +31,6 @@ public record UserSearchResult(
 public record ContactDto(
     string UserId,
     string Email,
-    string DisplayName
+    string DisplayName,
+    string? Nickname = null
 );

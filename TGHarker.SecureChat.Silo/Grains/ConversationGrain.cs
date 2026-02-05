@@ -231,7 +231,7 @@ public class ConversationGrain : Grain, IConversationGrain
         return Task.FromResult(encryptedKey);
     }
 
-    public async Task<Guid> PostMessageAsync(string senderUserId, PostMessageDto message)
+    public async Task<MessageDto> PostMessageAsync(string senderUserId, PostMessageDto message)
     {
         ValidateParticipantAccess();
 
@@ -284,7 +284,18 @@ public class ConversationGrain : Grain, IConversationGrain
         _logger.LogInformation("Posted message {MessageId} to conversation {ConversationId}",
             messageId, _state.State.ConversationId);
 
-        return messageId;
+        // Return the full message DTO
+        var messageDto = new MessageDto(
+            messageId,
+            _state.State.ConversationId,
+            senderUserId,
+            message.ParentMessageId,
+            message.EncryptedContent,
+            DateTime.UtcNow,
+            new List<Guid>() // New message has no replies yet
+        );
+
+        return messageDto;
     }
 
     public async Task<List<MessageDto>> GetMessagesAsync(int skip, int take)
@@ -351,5 +362,80 @@ public class ConversationGrain : Grain, IConversationGrain
         }
 
         return Task.FromResult(_state.State.CurrentKeyVersion);
+    }
+
+    public async Task MarkMessageAsReadAsync(Guid messageId, string userId)
+    {
+        ValidateParticipantAccess();
+
+        var callingUserId = GetCallingUserId();
+        if (callingUserId != userId)
+        {
+            throw new UnauthorizedAccessException("Can only mark messages as read for yourself");
+        }
+
+        if (!_state.State.IsCreated)
+        {
+            throw new InvalidOperationException("Conversation not created");
+        }
+
+        // Initialize the set if it doesn't exist
+        if (!_state.State.MessageReadReceipts.ContainsKey(messageId))
+        {
+            _state.State.MessageReadReceipts[messageId] = new HashSet<string>();
+        }
+
+        // Add the user to the read receipts
+        var wasAdded = _state.State.MessageReadReceipts[messageId].Add(userId);
+
+        // Only persist if something changed
+        if (wasAdded)
+        {
+            await _state.WriteStateAsync();
+        }
+    }
+
+    public Task<List<string>> GetMessageReadReceiptsAsync(Guid messageId)
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+        {
+            throw new InvalidOperationException("Conversation not created");
+        }
+
+        if (_state.State.MessageReadReceipts.TryGetValue(messageId, out var readers))
+        {
+            return Task.FromResult(readers.ToList());
+        }
+
+        return Task.FromResult(new List<string>());
+    }
+
+    public async Task DeleteConversationAsync()
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+        {
+            throw new InvalidOperationException("Conversation not created");
+        }
+
+        // Get all participants before clearing state
+        var participants = _state.State.ParticipantUserIds.ToList();
+        var conversationId = this.GetPrimaryKey();
+
+        // Clear the conversation state
+        await _state.ClearStateAsync();
+
+        // Remove this conversation from each participant's conversation list
+        foreach (var userId in participants)
+        {
+            var userGrain = GrainFactory.GetGrain<IUserGrain>(userId);
+            await userGrain.RemoveConversationAsync(conversationId);
+        }
+
+        // Deactivate the grain
+        DeactivateOnIdle();
     }
 }

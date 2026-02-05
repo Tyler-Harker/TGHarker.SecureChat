@@ -31,7 +31,8 @@ var api = builder.AddProject<TGHarker_SecureChat_WebApi>("webapi")
     .WithReference(tableStorage)
     .WaitFor(silo)
     .WithExternalHttpEndpoints()
-    .WithEnvironment("Cors__AllowedOrigins__0", frontend.GetEndpoint("http"));
+    .WithEnvironment("Cors__AllowedOrigins__0", frontend.GetEndpoint("http"))
+    .WithEnvironment("Frontend__BaseUrl", frontend.GetEndpoint("http"));
 
 // Inject API URL into frontend (use HTTPS endpoint)
 frontend.WithEnvironment("NEXT_PUBLIC_API_URL", api.GetEndpoint("https"));

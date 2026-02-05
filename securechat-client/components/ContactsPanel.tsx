@@ -18,6 +18,8 @@ export default function ContactsPanel({ onClose, onStartConversation, showHeader
   const [newContactId, setNewContactId] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingNickname, setEditingNickname] = useState<string | null>(null);
+  const [nicknameValue, setNicknameValue] = useState("");
 
   useEffect(() => {
     loadContacts();
@@ -63,11 +65,57 @@ export default function ContactsPanel({ onClose, onStartConversation, showHeader
     }
   };
 
+  const handleStartEditingNickname = (contact: Contact) => {
+    setEditingNickname(contact.userId);
+    setNicknameValue(contact.nickname || "");
+  };
+
+  const handleSaveNickname = async (contactUserId: string) => {
+    if (nicknameValue.trim()) {
+      try {
+        await apiClient.setContactNickname(contactUserId, nicknameValue.trim());
+        setContacts(
+          contacts.map((c) =>
+            c.userId === contactUserId ? { ...c, nickname: nicknameValue.trim() } : c
+          )
+        );
+        setEditingNickname(null);
+        setNicknameValue("");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to set nickname");
+      }
+    } else {
+      // If nickname is empty, remove it
+      handleRemoveNickname(contactUserId);
+    }
+  };
+
+  const handleRemoveNickname = async (contactUserId: string) => {
+    try {
+      await apiClient.removeContactNickname(contactUserId);
+      setContacts(
+        contacts.map((c) =>
+          c.userId === contactUserId ? { ...c, nickname: undefined } : c
+        )
+      );
+      setEditingNickname(null);
+      setNicknameValue("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove nickname");
+    }
+  };
+
+  const handleCancelEditingNickname = () => {
+    setEditingNickname(null);
+    setNicknameValue("");
+  };
+
   const filteredContacts = searchQuery
     ? contacts.filter(
         (c) =>
           c.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.email.toLowerCase().includes(searchQuery.toLowerCase())
+          c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (c.nickname && c.nickname.toLowerCase().includes(searchQuery.toLowerCase()))
       )
     : contacts;
 
@@ -162,44 +210,109 @@ export default function ContactsPanel({ onClose, onStartConversation, showHeader
                 className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-gray-900 dark:text-white">
-                    {contact.displayName}
-                  </div>
-                  <div className="truncate text-sm text-gray-500 dark:text-gray-400">
-                    {contact.email}
-                  </div>
+                  {editingNickname === contact.userId ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={nicknameValue}
+                        onChange={(e) => setNicknameValue(e.target.value)}
+                        placeholder="Enter nickname..."
+                        className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleSaveNickname(contact.userId);
+                          } else if (e.key === "Escape") {
+                            handleCancelEditingNickname();
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={() => handleSaveNickname(contact.userId)}
+                        className="rounded p-1 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
+                        title="Save"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={handleCancelEditingNickname}
+                        className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                        title="Cancel"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium text-gray-900 dark:text-white">
+                          {contact.nickname || contact.displayName}
+                        </span>
+                        {contact.nickname && (
+                          <span className="truncate text-sm text-gray-500 dark:text-gray-400">
+                            ({contact.displayName})
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate text-sm text-gray-500 dark:text-gray-400">
+                        {contact.email}
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="ml-4 flex flex-shrink-0 gap-2">
-                  {onStartConversation && (
-                    <button
-                      onClick={() => onStartConversation(contact)}
-                      className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
-                      title="Start conversation"
-                    >
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                      </svg>
-                    </button>
+                  {editingNickname !== contact.userId && (
+                    <>
+                      <button
+                        onClick={() => handleStartEditingNickname(contact)}
+                        className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                        title="Edit nickname"
+                      >
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                          />
+                        </svg>
+                      </button>
+                      {onStartConversation && (
+                        <button
+                          onClick={() => onStartConversation(contact)}
+                          className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                          title="Start conversation"
+                        >
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleRemoveContact(contact.userId)}
+                        className="rounded-lg p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                        title="Remove contact"
+                      >
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={() => handleRemoveContact(contact.userId)}
-                    className="rounded-lg p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                    title="Remove contact"
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
                 </div>
               </div>
             ))}

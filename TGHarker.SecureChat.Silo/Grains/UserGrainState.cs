@@ -32,4 +32,7 @@ public class UserGrainState
 
     [Id(8)]
     public HashSet<string> ContactUserIds { get; set; } = new();
+
+    [Id(9)]
+    public Dictionary<string, string> ContactNicknames { get; set; } = new();
 }

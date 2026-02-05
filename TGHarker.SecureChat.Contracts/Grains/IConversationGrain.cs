@@ -48,8 +48,9 @@ public interface IConversationGrain : IGrainWithGuidKey
     /// <summary>
     /// Posts a new encrypted message to the conversation.
     /// Requires: Caller must be a participant and must match senderUserId.
+    /// Returns the full message DTO including the generated message ID.
     /// </summary>
-    Task<Guid> PostMessageAsync(string senderUserId, PostMessageDto message);
+    Task<MessageDto> PostMessageAsync(string senderUserId, PostMessageDto message);
 
     /// <summary>
     /// Gets messages from the conversation with pagination.
@@ -74,4 +75,23 @@ public interface IConversationGrain : IGrainWithGuidKey
     /// Used to determine if key rotation is needed.
     /// </summary>
     Task<int> GetCurrentKeyVersionAsync();
+
+    /// <summary>
+    /// Marks a message as read by a user.
+    /// Requires: Caller must be a participant and must match userId.
+    /// </summary>
+    Task MarkMessageAsReadAsync(Guid messageId, string userId);
+
+    /// <summary>
+    /// Gets the list of user IDs who have read a specific message.
+    /// Requires: Caller must be a participant.
+    /// </summary>
+    Task<List<string>> GetMessageReadReceiptsAsync(Guid messageId);
+
+    /// <summary>
+    /// Deletes the conversation and all its messages.
+    /// Requires: Caller must be a participant.
+    /// This will delete the conversation for all participants.
+    /// </summary>
+    Task DeleteConversationAsync();
 }

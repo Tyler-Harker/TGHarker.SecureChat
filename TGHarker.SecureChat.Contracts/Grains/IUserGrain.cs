@@ -89,4 +89,28 @@ public interface IUserGrain : IGrainWithStringKey
     /// Checks if the user is registered.
     /// </summary>
     Task<bool> IsRegisteredAsync();
+
+    /// <summary>
+    /// Updates the user's display name.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task UpdateDisplayNameAsync(string displayName);
+
+    /// <summary>
+    /// Sets a nickname for a contact.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task SetContactNicknameAsync(string contactUserId, string nickname);
+
+    /// <summary>
+    /// Gets the nickname for a contact, or null if not set.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task<string?> GetContactNicknameAsync(string contactUserId);
+
+    /// <summary>
+    /// Removes the nickname for a contact.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task RemoveContactNicknameAsync(string contactUserId);
 }

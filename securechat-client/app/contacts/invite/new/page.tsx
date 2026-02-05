@@ -1,19 +1,22 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
-import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type CreateInviteResponse } from "@/lib/api-client";
+import { useAuth } from "@/contexts/AuthContext";
+import AuthGuard from "@/components/AuthGuard";
 
-export default function GenerateInvitePage() {
+function GenerateInviteContent() {
   const router = useRouter();
-  const { isAuthenticated, isLoading: isAuthLoading, accessToken, login } = useAuth();
+  const { accessToken } = useAuth();
   const [invite, setInvite] = useState<CreateInviteResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [timeLeft, setTimeLeft] = useState<string>("");
+  const [acceptedByName, setAcceptedByName] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const generateInvite = useCallback(async () => {
     setIsLoading(true);
@@ -30,13 +33,57 @@ export default function GenerateInvitePage() {
     }
   }, []);
 
+  // Generate invite on mount
   useEffect(() => {
-    if (!isAuthLoading && accessToken) {
-      apiClient.setAccessToken(accessToken);
-      generateInvite();
-    }
-  }, [isAuthLoading, accessToken, generateInvite]);
+    generateInvite();
+  }, [generateInvite]);
 
+  // Set up SSE connection to listen for invite acceptance
+  useEffect(() => {
+    if (!invite || !accessToken) return;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5280";
+    const sseUrl = `${apiUrl}/api/invites/${invite.inviteId}/events`;
+
+    // Create EventSource with authorization header (using query param as EventSource doesn't support headers)
+    // Note: For production, consider using a more secure method
+    const eventSource = new EventSource(`${sseUrl}?access_token=${accessToken}`);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      console.log("SSE connection opened for invite", invite.inviteId);
+    };
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "accepted") {
+          console.log("Invite accepted by", data.displayName);
+          setAcceptedByName(data.displayName);
+
+          // Navigate to contacts after a brief delay to show the success message
+          setTimeout(() => {
+            router.push("/contacts");
+          }, 2000);
+        }
+      } catch (err) {
+        console.error("Failed to parse SSE event:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error("SSE connection error:", err);
+      eventSource.close();
+    };
+
+    return () => {
+      console.log("Closing SSE connection");
+      eventSource.close();
+    };
+  }, [invite, accessToken, router]);
+
+  // Timer countdown effect
   useEffect(() => {
     if (!invite) return;
 
@@ -81,54 +128,8 @@ export default function GenerateInvitePage() {
   };
 
   const handleBack = () => {
-    router.push("/");
+    router.push("/contacts");
   };
-
-  if (isAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4 dark:bg-gray-900">
-        <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg dark:bg-gray-800">
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
-              <svg
-                className="h-8 w-8 text-blue-600 dark:text-blue-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
-            </div>
-            <h1 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
-              Sign In Required
-            </h1>
-            <p className="mb-6 text-gray-600 dark:text-gray-300">
-              Please sign in to generate an invite link.
-            </p>
-            <button
-              onClick={() => login()}
-              className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
-            >
-              Sign In
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-100 dark:bg-gray-900">
@@ -183,65 +184,101 @@ export default function GenerateInvitePage() {
             </div>
           ) : invite ? (
             <div className="flex flex-col items-center rounded-xl bg-white p-6 shadow-lg dark:bg-gray-800">
-              {/* QR Code */}
-              <div className="mb-4 rounded-lg bg-white p-4">
-                <QRCodeSVG
-                  value={invite.inviteUrl}
-                  size={200}
-                  level="M"
-                  includeMargin={false}
-                />
-              </div>
-
-              {/* Timer */}
-              <div className="mb-4 text-center">
-                <p className="text-sm text-gray-500 dark:text-gray-400">Expires in</p>
-                <p className="text-xl font-semibold text-gray-900 dark:text-white">{timeLeft}</p>
-              </div>
-
-              {/* Instructions */}
-              <p className="mb-4 text-center text-sm text-gray-600 dark:text-gray-300">
-                Scan this QR code with another device, or share the link below.
-              </p>
-
-              {/* Copy URL Button */}
-              <button
-                onClick={handleCopyUrl}
-                className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-semibold transition-colors ${
-                  copied
-                    ? "bg-green-600 text-white"
-                    : "bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
-                }`}
-              >
-                {copied ? (
-                  <>
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {acceptedByName ? (
+                /* Success State */
+                <div className="flex flex-col items-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+                    <svg
+                      className="h-8 w-8 text-green-600 dark:text-green-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
-                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                        d="M5 13l4 4L19 7"
                       />
                     </svg>
-                    Copy Invite Link
-                  </>
-                )}
-              </button>
+                  </div>
+                  <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
+                    Invite Accepted!
+                  </h2>
+                  <p className="text-center text-gray-600 dark:text-gray-300">
+                    <span className="font-semibold">{acceptedByName}</span> is now your contact.
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    Redirecting to contacts...
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* QR Code */}
+                  <div className="mb-4 rounded-lg bg-white p-4">
+                    <QRCodeSVG
+                      value={invite.inviteUrl}
+                      size={200}
+                      level="M"
+                      includeMargin={false}
+                    />
+                  </div>
 
-              {/* Regenerate Button */}
-              <button
-                onClick={generateInvite}
-                className="mt-3 text-sm text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Generate New Link
-              </button>
+                  {/* Timer */}
+                  <div className="mb-4 text-center">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Expires in</p>
+                    <p className="text-xl font-semibold text-gray-900 dark:text-white">{timeLeft}</p>
+                  </div>
+
+                  {/* Instructions */}
+                  <p className="mb-4 text-center text-sm text-gray-600 dark:text-gray-300">
+                    Scan this QR code with another device, or share the link below.
+                  </p>
+                </>
+              )}
+
+              {!acceptedByName && (
+                <>
+                  {/* Copy URL Button */}
+                  <button
+                    onClick={handleCopyUrl}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-semibold transition-colors ${
+                      copied
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                    }`}
+                  >
+                    {copied ? (
+                      <>
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                        Copy Invite Link
+                      </>
+                    )}
+                  </button>
+
+                  {/* Regenerate Button */}
+                  <button
+                    onClick={generateInvite}
+                    className="mt-3 text-sm text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    Generate New Link
+                  </button>
+                </>
+              )}
             </div>
           ) : null}
         </div>
@@ -259,5 +296,13 @@ export default function GenerateInvitePage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function GenerateInvitePage() {
+  return (
+    <AuthGuard>
+      <GenerateInviteContent />
+    </AuthGuard>
   );
 }

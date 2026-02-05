@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using TGHarker.SecureChat.WebApi.Filters;
 using TGHarker.SecureChat.WebApi.Middleware;
+using TGHarker.SecureChat.WebApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -75,6 +76,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+
+// Register notification services for SSE
+builder.Services.AddSingleton<IInviteNotificationService, InviteNotificationService>();
+builder.Services.AddSingleton<IConversationNotificationService, ConversationNotificationService>();
 
 // Configure Orleans client with user context filter
 builder.UseOrleansClient(clientBuilder =>

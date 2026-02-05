@@ -34,9 +34,12 @@ export interface Message {
   senderId: string;
   ciphertext: string; // Base64
   nonce: string; // Base64
+  authTag: string; // Base64
   timestamp: string;
   keyRotationVersion: number;
   parentMessageId?: string;
+  readBy?: string[]; // User IDs who have read this message (client-side tracking)
+  replyCount?: number; // Number of replies (client-side tracking)
 }
 
 export interface CreateConversationRequest {
@@ -45,16 +48,20 @@ export interface CreateConversationRequest {
 }
 
 export interface PostMessageRequest {
-  ciphertext: string; // Base64
-  nonce: string; // Base64
-  timestamp: string;
   parentMessageId?: string;
+  encryptedContent: {
+    ciphertext: string; // Base64
+    nonce: string; // Base64
+    authTag: string; // Base64
+    keyVersion: number;
+  };
 }
 
 export interface Contact {
   userId: string;
   email: string;
   displayName: string;
+  nickname?: string;
 }
 
 export interface CreateInviteResponse {
@@ -202,6 +209,35 @@ export class ApiClient {
     );
   }
 
+  async updateDisplayName(displayName: string): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>("/api/users/me/displayname", {
+      method: "PUT",
+      body: JSON.stringify({ displayName }),
+    });
+  }
+
+  async setContactNickname(
+    contactUserId: string,
+    nickname: string
+  ): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/users/me/contacts/${encodeURIComponent(contactUserId)}/nickname`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ nickname }),
+      }
+    );
+  }
+
+  async removeContactNickname(contactUserId: string): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/users/me/contacts/${encodeURIComponent(contactUserId)}/nickname`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
   // ===== Contact Invite Endpoints =====
 
   async createInvite(): Promise<CreateInviteResponse> {
@@ -245,6 +281,12 @@ export class ApiClient {
 
   async getConversation(conversationId: string): Promise<Conversation> {
     return this.fetch<Conversation>(`/api/conversations/${conversationId}`);
+  }
+
+  async deleteConversation(conversationId: string): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(`/api/conversations/${conversationId}`, {
+      method: "DELETE",
+    });
   }
 
   async addParticipant(
@@ -303,6 +345,27 @@ export class ApiClient {
   ): Promise<Message[]> {
     return this.fetch<Message[]>(
       `/api/conversations/${conversationId}/messages/${parentMessageId}/replies?skip=${skip}&take=${take}`
+    );
+  }
+
+  async markMessageAsRead(
+    conversationId: string,
+    messageId: string
+  ): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/conversations/${conversationId}/messages/${messageId}/read`,
+      {
+        method: "POST",
+      }
+    );
+  }
+
+  async getMessageReadReceipts(
+    conversationId: string,
+    messageId: string
+  ): Promise<string[]> {
+    return this.fetch<string[]>(
+      `/api/conversations/${conversationId}/messages/${messageId}/read`
     );
   }
 }

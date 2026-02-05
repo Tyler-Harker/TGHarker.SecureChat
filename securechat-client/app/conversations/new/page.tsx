@@ -72,8 +72,8 @@ export default function NewConversationPage() {
         encryptedConversationKeys,
       });
 
-      // Navigate back to home with the new conversation selected
-      router.push(`/?conversation=${conversation.conversationId}`);
+      // Navigate back to chats with the new conversation selected
+      router.push(`/chats?conversation=${conversation.conversationId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create conversation");
       setIsCreating(false);
@@ -81,7 +81,7 @@ export default function NewConversationPage() {
   };
 
   const handleBack = () => {
-    router.push("/");
+    router.push("/chats");
   };
 
   const filteredContacts = searchQuery
@@ -212,7 +212,7 @@ export default function NewConversationPage() {
                 </p>
                 {!searchQuery && (
                   <button
-                    onClick={() => router.push("/")}
+                    onClick={() => router.push("/contacts")}
                     className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                   >
                     Go to Contacts

@@ -287,4 +287,76 @@ public class UserGrain : Grain, IUserGrain
     {
         return Task.FromResult(_state.State.IsRegistered);
     }
+
+    public async Task UpdateDisplayNameAsync(string displayName)
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            throw new ArgumentException("Display name cannot be empty", nameof(displayName));
+        }
+
+        _state.State.DisplayName = displayName;
+        await _state.WriteStateAsync();
+
+        _logger.LogInformation("User {UserId} updated display name to {DisplayName}",
+            _state.State.UserId, displayName);
+    }
+
+    public async Task SetContactNicknameAsync(string contactUserId, string nickname)
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        if (string.IsNullOrWhiteSpace(nickname))
+        {
+            throw new ArgumentException("Nickname cannot be empty", nameof(nickname));
+        }
+
+        _state.State.ContactNicknames[contactUserId] = nickname;
+        await _state.WriteStateAsync();
+
+        _logger.LogInformation("User {UserId} set nickname for contact {ContactUserId}",
+            _state.State.UserId, contactUserId);
+    }
+
+    public Task<string?> GetContactNicknameAsync(string contactUserId)
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        _state.State.ContactNicknames.TryGetValue(contactUserId, out var nickname);
+        return Task.FromResult(nickname);
+    }
+
+    public async Task RemoveContactNicknameAsync(string contactUserId)
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        if (_state.State.ContactNicknames.Remove(contactUserId))
+        {
+            await _state.WriteStateAsync();
+            _logger.LogInformation("User {UserId} removed nickname for contact {ContactUserId}",
+                _state.State.UserId, contactUserId);
+        }
+    }
 }

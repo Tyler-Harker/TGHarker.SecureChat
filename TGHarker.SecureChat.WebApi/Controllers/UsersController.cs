@@ -196,7 +196,9 @@ public class UsersController : ControllerBase
                 var contactInfo = await contactGrain.GetContactInfoAsync();
                 if (contactInfo != null)
                 {
-                    contacts.Add(contactInfo);
+                    // Get the nickname for this contact
+                    var nickname = await userGrain.GetContactNicknameAsync(contactId);
+                    contacts.Add(contactInfo with { Nickname = nickname });
                 }
             }
 
@@ -303,8 +305,77 @@ public class UsersController : ControllerBase
             return StatusCode(500, new { error = "Failed to search contacts" });
         }
     }
+
+    /// <summary>
+    /// Update the current user's display name.
+    /// </summary>
+    [HttpPut("me/displayname")]
+    public async Task<ActionResult> UpdateDisplayName([FromBody] UpdateDisplayNameDto request)
+    {
+        try
+        {
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            await userGrain.UpdateDisplayNameAsync(request.DisplayName);
+            return Ok(new { message = "Display name updated successfully" });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update display name for user {UserId}", UserId);
+            return StatusCode(500, new { error = "Failed to update display name" });
+        }
+    }
+
+    /// <summary>
+    /// Set or update a nickname for a contact.
+    /// </summary>
+    [HttpPut("me/contacts/{contactUserId}/nickname")]
+    public async Task<ActionResult> SetContactNickname(string contactUserId, [FromBody] SetNicknameDto request)
+    {
+        try
+        {
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            await userGrain.SetContactNicknameAsync(contactUserId, request.Nickname);
+            return Ok(new { message = "Nickname updated successfully" });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set nickname for contact {ContactUserId}", contactUserId);
+            return StatusCode(500, new { error = "Failed to set nickname" });
+        }
+    }
+
+    /// <summary>
+    /// Remove a nickname for a contact.
+    /// </summary>
+    [HttpDelete("me/contacts/{contactUserId}/nickname")]
+    public async Task<ActionResult> RemoveContactNickname(string contactUserId)
+    {
+        try
+        {
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            await userGrain.RemoveContactNicknameAsync(contactUserId);
+            return Ok(new { message = "Nickname removed successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove nickname for contact {ContactUserId}", contactUserId);
+            return StatusCode(500, new { error = "Failed to remove nickname" });
+        }
+    }
 }
 
 public record UpdateKeysDto(byte[] PublicKey, byte[] EncryptedPrivateKey, byte[] Salt);
+
+public record UpdateDisplayNameDto(string DisplayName);
+
+public record SetNicknameDto(string Nickname);
 
 public record EnsureRegisteredResponse(UserProfileDto Profile, bool IsNewUser);
