@@ -4,10 +4,11 @@
 #   1. Go to repository Settings > Pages
 #   2. Set "Source" to "GitHub Actions"
 #
-# Optional Environment Variables (set in repository secrets):
-#   NEXT_PUBLIC_API_URL       - URL of the SecureChat WebApi
-#   NEXT_PUBLIC_AUTH_AUTHORITY - OIDC authority URL
-#   NEXT_PUBLIC_AUTH_CLIENT_ID - OIDC client ID
+# Optional Environment Variables (set in repository variables/secrets):
+#   NEXT_PUBLIC_API_URL            - URL of the SecureChat WebApi
+#   NEXT_PUBLIC_AUTH_AUTHORITY     - OIDC authority URL
+#   NEXT_PUBLIC_AUTH_CLIENT_ID     - OIDC client ID
+#   NEXT_PUBLIC_VAPID_PUBLIC_KEY   - VAPID public key for Web Push notifications
 
 name: Deploy Client to GitHub Pages
 
@@ -60,6 +61,7 @@ jobs:
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_AUTH_AUTHORITY: ${{ vars.NEXT_PUBLIC_AUTH_AUTHORITY }}
           NEXT_PUBLIC_AUTH_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AUTH_CLIENT_ID }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
