@@ -7,6 +7,7 @@ using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using TGHarker.SecureChat.ServiceDefaults.Cryptography;
 
 namespace Microsoft.Extensions.Hosting;
 
@@ -40,6 +41,9 @@ public static class Extensions
         // {
         //     options.AllowedSchemes = ["https"];
         // });
+
+        // Register encryption service
+        builder.Services.AddSingleton<IEndToEndEncryptionService, EndToEndEncryptionService>();
 
         return builder;
     }

@@ -3,10 +3,11 @@ using Projects;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// PostgreSQL for Orleans.Search index
 var postgres = builder.AddPostgres("postgres");
-var searchDb = postgres.AddDatabase("chat-searchdb");
+var searchDb = postgres.AddDatabase("searchdb");
 
-
+// Azure Storage for Orleans clustering and grain state
 var storage = builder.AddAzureStorage("storage");
 storage.RunAsEmulator();
 var tableStorage = storage.AddTables("tableStorage");
@@ -22,9 +23,12 @@ var silo = builder.AddProject<TGHarker_SecureChat_Silo>("silo")
 
 var api = builder.AddProject<TGHarker_SecureChat_WebApi>("webapi")
     .WithReference(tableStorage)
-    .WithReference(searchDb)
     .WaitFor(silo);
 
-
+// Next.js Frontend
+var frontend = builder.AddNpmApp("frontend", "../securechat-client", "dev")
+    .WithHttpEndpoint(port: 3000, env: "PORT")
+    .WithEnvironment("NEXT_PUBLIC_AUTH_AUTHORITY", "https://identity.harker.dev/tenant/harker")
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();

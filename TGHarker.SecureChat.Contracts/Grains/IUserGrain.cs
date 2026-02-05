@@ -1,0 +1,57 @@
+using Orleans;
+using TGHarker.SecureChat.Contracts.Models;
+
+namespace TGHarker.SecureChat.Contracts.Grains;
+
+/// <summary>
+/// Grain representing a single user in the system.
+/// Key: OAuth2 subject ID (string)
+/// </summary>
+public interface IUserGrain : IGrainWithStringKey
+{
+    /// <summary>
+    /// Registers a new user with their encrypted identity keys.
+    /// </summary>
+    Task RegisterAsync(UserRegistrationDto registration);
+
+    /// <summary>
+    /// Gets the user's profile information.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task<UserProfileDto> GetProfileAsync();
+
+    /// <summary>
+    /// Updates the user's public and encrypted private identity keys.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task UpdatePublicKeyAsync(byte[] publicKey, byte[] encryptedPrivateKey, byte[] salt);
+
+    /// <summary>
+    /// Gets the list of conversation IDs the user is participating in.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task<List<Guid>> GetConversationIdsAsync();
+
+    /// <summary>
+    /// Adds a conversation to the user's conversation list.
+    /// Called by ConversationGrain when user is added to a conversation.
+    /// </summary>
+    Task AddConversationAsync(Guid conversationId);
+
+    /// <summary>
+    /// Removes a conversation from the user's conversation list.
+    /// Called by ConversationGrain when user leaves a conversation.
+    /// </summary>
+    Task RemoveConversationAsync(Guid conversationId);
+
+    /// <summary>
+    /// Gets the user's public identity key for key exchange.
+    /// This is publicly accessible for other users to perform ECDH.
+    /// </summary>
+    Task<byte[]> GetPublicIdentityKeyAsync();
+
+    /// <summary>
+    /// Updates the user's last active timestamp.
+    /// </summary>
+    Task UpdateLastActiveAsync();
+}

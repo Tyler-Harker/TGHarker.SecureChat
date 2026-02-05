@@ -1,22 +1,70 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using TGHarker.SecureChat.WebApi.Filters;
+using TGHarker.SecureChat.WebApi.Middleware;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// Add controllers
+builder.Services.AddControllers();
+
+// Add OpenAPI
 builder.Services.AddOpenApi();
 
+// Configure JWT authentication
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = builder.Configuration["Authentication:Authority"] ?? "https://identity.harker.dev";
+        options.Audience = builder.Configuration["Authentication:Audience"] ?? "securechat-api";
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ClockSkew = TimeSpan.Zero,
+            NameClaimType = ClaimTypes.NameIdentifier,
+            RoleClaimType = ClaimTypes.Role
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+                logger.LogError(context.Exception, "JWT authentication failed");
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+                var userId = context.Principal?.FindFirst("sub")?.Value;
+                logger.LogDebug("JWT token validated for user {UserId}", userId);
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// Configure Orleans client with user context filter
 builder.UseOrleansClient(clientBuilder =>
 {
     clientBuilder
-        // Configure the client to use Azure Storage for clustering
         .UseAzureStorageClustering(options =>
         {
-            options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(builder.Configuration.GetConnectionString("tableStorage"));
-        });
+            options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(
+                builder.Configuration.GetConnectionString("tableStorage"));
+        })
+        .AddOutgoingGrainCallFilter<UserContextFilter>();
 });
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -24,5 +72,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Authentication & Authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
+// User context middleware (must come after authentication)
+app.UseMiddleware<UserContextMiddleware>();
+
+// Map controllers
+app.MapControllers();
 
 app.Run();
