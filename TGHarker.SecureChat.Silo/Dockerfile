@@ -25,13 +25,10 @@ RUN dotnet publish -c Release -o /app/publish --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Create non-root user for security
-RUN adduser --disabled-password --gecos "" appuser
-
 COPY --from=build /app/publish .
 
-# Switch to non-root user
-USER appuser
+# Use built-in non-root user from .NET image
+USER $APP_UID
 
 EXPOSE 8080
 EXPOSE 11111
