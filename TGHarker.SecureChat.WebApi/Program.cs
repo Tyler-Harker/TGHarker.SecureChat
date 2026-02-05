@@ -79,7 +79,7 @@ builder.Services.AddAuthorization();
 
 // Register notification services for SSE
 builder.Services.AddSingleton<IInviteNotificationService, InviteNotificationService>();
-builder.Services.AddSingleton<IConversationNotificationService, ConversationNotificationService>();
+// ConversationNotificationService is no longer needed - Orleans Streams handle conversation events
 
 // Configure Orleans client with user context filter
 builder.UseOrleansClient(clientBuilder =>
@@ -90,6 +90,7 @@ builder.UseOrleansClient(clientBuilder =>
             options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(
                 builder.Configuration.GetConnectionString("tableStorage"));
         })
+        .AddMemoryStreams("ConversationStreamProvider")
         .AddOutgoingGrainCallFilter<UserContextFilter>();
 });
 

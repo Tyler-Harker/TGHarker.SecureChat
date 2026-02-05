@@ -1,6 +1,7 @@
 using Orleans;
 using Orleans.Providers;
 using Orleans.Runtime;
+using Orleans.Streams;
 using TGHarker.SecureChat.Contracts.Grains;
 using TGHarker.SecureChat.Contracts.Models;
 using TGHarker.SecureChat.Contracts.Services;
@@ -13,6 +14,7 @@ public class ConversationGrain : Grain, IConversationGrain
     private readonly IPersistentState<ConversationGrainState> _state;
     private readonly IMessageStorageService _messageStorage;
     private readonly ILogger<ConversationGrain> _logger;
+    private IAsyncStream<string>? _eventStream;
 
     public ConversationGrain(
         [PersistentState("conversation", "AzureBlobStorage")] IPersistentState<ConversationGrainState> state,
@@ -22,6 +24,16 @@ public class ConversationGrain : Grain, IConversationGrain
         _state = state;
         _messageStorage = messageStorage;
         _logger = logger;
+    }
+
+    public override Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        // Get the stream for this conversation
+        var conversationId = this.GetPrimaryKey();
+        var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
+        _eventStream = streamProvider.GetStream<string>("ConversationEvents", conversationId);
+
+        return base.OnActivateAsync(cancellationToken);
     }
 
     private string GetCallingUserId()
@@ -295,6 +307,32 @@ public class ConversationGrain : Grain, IConversationGrain
             new List<Guid>() // New message has no replies yet
         );
 
+        // Publish message event to stream
+        if (_eventStream != null)
+        {
+            var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = "message",
+                message = new
+                {
+                    messageId = messageDto.MessageId.ToString(),
+                    conversationId = messageDto.ConversationId.ToString(),
+                    senderId = messageDto.SenderUserId,
+                    ciphertext = Convert.ToBase64String(messageDto.EncryptedContent.Ciphertext),
+                    nonce = Convert.ToBase64String(messageDto.EncryptedContent.Nonce),
+                    authTag = Convert.ToBase64String(messageDto.EncryptedContent.AuthTag),
+                    timestamp = messageDto.CreatedAt.ToString("o"),
+                    keyRotationVersion = messageDto.EncryptedContent.KeyVersion,
+                    parentMessageId = messageDto.ParentMessageId?.ToString()
+                }
+            }, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+
+            await _eventStream.OnNextAsync(eventJson);
+        }
+
         return messageDto;
     }
 
@@ -392,6 +430,22 @@ public class ConversationGrain : Grain, IConversationGrain
         if (wasAdded)
         {
             await _state.WriteStateAsync();
+
+            // Publish read receipt event to stream
+            if (_eventStream != null)
+            {
+                var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "read_receipt",
+                    messageId = messageId.ToString(),
+                    userId
+                }, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+                });
+
+                await _eventStream.OnNextAsync(eventJson);
+            }
         }
     }
 
@@ -424,6 +478,21 @@ public class ConversationGrain : Grain, IConversationGrain
         // Get all participants before clearing state
         var participants = _state.State.ParticipantUserIds.ToList();
         var conversationId = this.GetPrimaryKey();
+
+        // Publish deletion event to stream before clearing state
+        if (_eventStream != null)
+        {
+            var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = "conversation_deleted",
+                conversationId = conversationId.ToString()
+            }, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+
+            await _eventStream.OnNextAsync(eventJson);
+        }
 
         // Clear the conversation state
         await _state.ClearStateAsync();

@@ -11,6 +11,7 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.2" />
     <PackageReference Include="Microsoft.Orleans.Client" Version="10.0.0" />
     <PackageReference Include="Microsoft.Orleans.Clustering.AzureStorage" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Orleans.Streaming" Version="10.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
   </ItemGroup>
 

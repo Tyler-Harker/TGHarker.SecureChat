@@ -42,6 +42,10 @@ builder.UseOrleans(siloBuilder =>
     // TODO: Wrap with searchable storage after Orleans.Search is configured
     // siloBuilder.AddSearchableGrainStorage("AzureBlobStorage");
 
+    // Configure Orleans Streams for real-time events
+    siloBuilder.AddMemoryStreams("ConversationStreamProvider");
+    siloBuilder.AddMemoryGrainStorage("PubSubStore");
+
     // Add incoming grain call filter for user context validation
     siloBuilder.AddIncomingGrainCallFilter<UserContextValidationFilter>();
 });

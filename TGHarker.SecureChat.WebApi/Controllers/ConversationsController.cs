@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Orleans;
 using Orleans.Runtime;
+using Orleans.Streams;
 using TGHarker.SecureChat.Contracts.Grains;
 using TGHarker.SecureChat.Contracts.Models;
 using TGHarker.SecureChat.WebApi.Models;
@@ -16,19 +17,16 @@ public class ConversationsController : ControllerBase
 {
     private readonly IClusterClient _client;
     private readonly ILogger<ConversationsController> _logger;
-    private readonly IConversationNotificationService _notificationService;
 
     private string UserId => User.FindFirst("sub")?.Value
         ?? throw new UnauthorizedAccessException("No user ID in token");
 
     public ConversationsController(
         IClusterClient client,
-        ILogger<ConversationsController> logger,
-        IConversationNotificationService notificationService)
+        ILogger<ConversationsController> logger)
     {
         _client = client;
         _logger = logger;
-        _notificationService = notificationService;
     }
 
     private static MessageApiResponse MapToApiResponse(MessageDto dto)
@@ -167,17 +165,7 @@ public class ConversationsController : ControllerBase
             var messageDto = await conversationGrain.PostMessageAsync(UserId, message);
             var apiResponse = MapToApiResponse(messageDto);
 
-            // Notify SSE listeners of the new message
-            var messageJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                type = "message",
-                message = apiResponse
-            }, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-            });
-            await _notificationService.NotifyNewMessageAsync(conversationId, messageJson);
-
+            // Orleans Stream will automatically publish the message event from ConversationGrain
             return Ok(apiResponse);
         }
         catch (UnauthorizedAccessException)
@@ -313,40 +301,30 @@ public class ConversationsController : ControllerBase
             await Response.WriteAsync("data: {\"type\":\"connected\"}\n\n", cancellationToken);
             await Response.Body.FlushAsync(cancellationToken);
 
-            // Register callback for new messages
-            var tcs = new TaskCompletionSource<string>();
+            // Subscribe to Orleans Stream for this conversation
+            var streamProvider = _client.GetStreamProvider("ConversationStreamProvider");
+            var streamId = StreamId.Create("ConversationEvents", conversationId);
+            var stream = streamProvider.GetStream<string>(streamId);
 
-            _notificationService.RegisterListener(conversationId, currentUserId, async (messageJson) =>
-            {
-                tcs.TrySetResult(messageJson);
-                await Task.CompletedTask;
-            });
+            // Use a channel to receive stream events
+            var channel = System.Threading.Channels.Channel.CreateUnbounded<string>();
+
+            // Subscribe to the stream with an observer
+            var observer = new StreamObserver(channel.Writer);
+            var subscriptionHandle = await stream.SubscribeAsync(observer);
 
             try
             {
-                // Wait for new message or cancellation
-                using var registration = cancellationToken.Register(() => tcs.TrySetCanceled());
-
                 // Keep connection alive with timeout of 30 minutes
-                var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
-                using var timeoutRegistration = timeoutCts.Token.Register(() => tcs.TrySetCanceled());
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromMinutes(30));
 
-                while (!cancellationToken.IsCancellationRequested)
+                await foreach (var eventJson in channel.Reader.ReadAllAsync(timeoutCts.Token))
                 {
-                    var messageJson = await tcs.Task;
-
-                    // Send new message event
-                    var eventData = $"data: {messageJson}\n\n";
-                    await Response.WriteAsync(eventData, cancellationToken);
-                    await Response.Body.FlushAsync(cancellationToken);
-
-                    // Reset for next message
-                    tcs = new TaskCompletionSource<string>();
-                    _notificationService.RegisterListener(conversationId, currentUserId, async (json) =>
-                    {
-                        tcs.TrySetResult(json);
-                        await Task.CompletedTask;
-                    });
+                    // Send event to client
+                    var eventData = $"data: {eventJson}\n\n";
+                    await Response.WriteAsync(eventData, timeoutCts.Token);
+                    await Response.Body.FlushAsync(timeoutCts.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -356,7 +334,9 @@ public class ConversationsController : ControllerBase
             }
             finally
             {
-                _notificationService.UnregisterListener(conversationId, currentUserId);
+                // Unsubscribe from the stream
+                await subscriptionHandle.UnsubscribeAsync();
+                channel.Writer.Complete();
             }
         }
         catch (Exception ex)
@@ -423,18 +403,7 @@ public class ConversationsController : ControllerBase
             var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
             await conversationGrain.MarkMessageAsReadAsync(messageId, UserId);
 
-            // Notify SSE listeners of the read receipt
-            var readReceiptJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                type = "read_receipt",
-                messageId = messageId.ToString(),
-                userId = UserId
-            }, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-            });
-            await _notificationService.NotifyNewMessageAsync(conversationId, readReceiptJson);
-
+            // Orleans Stream will automatically publish the read receipt event from ConversationGrain
             return Ok(new { message = "Message marked as read" });
         }
         catch (UnauthorizedAccessException)
@@ -482,18 +451,7 @@ public class ConversationsController : ControllerBase
         {
             RequestContext.Set("UserId", UserId);
 
-            // Notify all connected participants before deletion
-            var deletionEvent = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                type = "conversation_deleted",
-                conversationId = conversationId.ToString()
-            }, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-            });
-            await _notificationService.NotifyConversationDeletedAsync(conversationId, deletionEvent);
-
-            // Now delete the conversation
+            // Delete the conversation (Orleans Stream will automatically publish deletion event from ConversationGrain)
             var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
             await conversationGrain.DeleteConversationAsync();
 
@@ -518,3 +476,25 @@ public record CreateConversationRequest(
 
 public record StoreKeyRequest(string UserId, byte[] EncryptedKey, int KeyVersion);
 public record AddParticipantRequest(string UserId);
+
+/// <summary>
+/// Observer for Orleans Streams that writes events to a channel.
+/// </summary>
+internal class StreamObserver : IAsyncObserver<string>
+{
+    private readonly System.Threading.Channels.ChannelWriter<string> _writer;
+
+    public StreamObserver(System.Threading.Channels.ChannelWriter<string> writer)
+    {
+        _writer = writer;
+    }
+
+    public Task OnCompletedAsync() => Task.CompletedTask;
+
+    public Task OnErrorAsync(Exception ex) => Task.CompletedTask;
+
+    public async Task OnNextAsync(string item, StreamSequenceToken? token = null)
+    {
+        await _writer.WriteAsync(item);
+    }
+}
