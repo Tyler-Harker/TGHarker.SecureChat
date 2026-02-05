@@ -734,7 +734,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   return (
     <div className="flex h-full flex-1 overflow-hidden">
       {/* Main Chat Area */}
-      <div className={`flex h-full flex-1 flex-col ${activeThread ? "hidden md:flex" : "flex"}`}>
+      <div className={`flex min-h-0 flex-1 flex-col ${activeThread ? "hidden md:flex" : "flex"}`}>
         {/* Header */}
         <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex items-center gap-3">
@@ -1131,7 +1131,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
       {/* Thread Panel */}
       {activeThread && (
-        <div className={`flex w-full flex-col border-l border-gray-200 dark:border-gray-700 md:w-96 ${activeThread ? "flex" : "hidden"}`}>
+        <div className={`flex min-h-0 w-full flex-col border-l border-gray-200 dark:border-gray-700 md:w-96 ${activeThread ? "flex" : "hidden"}`}>
           {/* Thread Header */}
           <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="font-semibold text-gray-900 dark:text-white">Thread</h3>

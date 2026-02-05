@@ -291,7 +291,7 @@ export default function ChatInterface() {
       </div>
 
       {/* Desktop Main Content */}
-      <div className="hidden flex-1 flex-col md:flex">
+      <div className="hidden min-h-0 flex-1 flex-col md:flex">
         {selectedConversationId ? (
           <MessageView conversationId={selectedConversationId} onBack={handleBack} />
         ) : (
