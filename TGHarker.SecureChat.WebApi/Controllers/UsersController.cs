@@ -26,6 +26,32 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// Ensure the current user is registered. Auto-registers from JWT claims if not.
+    /// Call this when the user first opens the authenticated section of the app.
+    /// </summary>
+    [HttpPost("me/ensure")]
+    public async Task<ActionResult<EnsureRegisteredResponse>> EnsureRegistered()
+    {
+        try
+        {
+            var email = User.FindFirst("email")?.Value ?? User.FindFirst("sub")?.Value ?? "unknown@user";
+            var displayName = User.FindFirst("name")?.Value
+                ?? User.FindFirst("preferred_username")?.Value
+                ?? email.Split('@')[0];
+
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            var (profile, isNewUser) = await userGrain.EnsureRegisteredAsync(email, displayName);
+
+            return Ok(new EnsureRegisteredResponse(profile, isNewUser));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to ensure user registration for {UserId}", UserId);
+            return StatusCode(500, new { error = "Failed to ensure registration" });
+        }
+    }
+
+    /// <summary>
     /// Register a new user with encrypted identity keys.
     /// </summary>
     [HttpPost("register")]
@@ -121,6 +147,11 @@ public class UsersController : ControllerBase
             var conversationIds = await userGrain.GetConversationIdsAsync();
             return Ok(conversationIds);
         }
+        catch (InvalidOperationException)
+        {
+            // User not registered yet - return empty list
+            return Ok(new List<Guid>());
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get conversations for user {UserId}", UserId);
@@ -146,6 +177,134 @@ public class UsersController : ControllerBase
             return StatusCode(500, new { error = "Failed to update keys" });
         }
     }
+
+    /// <summary>
+    /// Get the current user's contacts with their profile info.
+    /// </summary>
+    [HttpGet("me/contacts")]
+    public async Task<ActionResult<List<ContactDto>>> GetMyContacts()
+    {
+        try
+        {
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            var contactIds = await userGrain.GetContactIdsAsync();
+
+            var contacts = new List<ContactDto>();
+            foreach (var contactId in contactIds)
+            {
+                var contactGrain = _client.GetGrain<IUserGrain>(contactId);
+                var contactInfo = await contactGrain.GetContactInfoAsync();
+                if (contactInfo != null)
+                {
+                    contacts.Add(contactInfo);
+                }
+            }
+
+            return Ok(contacts);
+        }
+        catch (InvalidOperationException)
+        {
+            // User not registered yet - return empty list
+            return Ok(new List<ContactDto>());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get contacts for user {UserId}", UserId);
+            return StatusCode(500, new { error = "Failed to get contacts" });
+        }
+    }
+
+    /// <summary>
+    /// Add a user as a contact.
+    /// </summary>
+    [HttpPost("me/contacts/{contactUserId}")]
+    public async Task<ActionResult> AddContact(string contactUserId)
+    {
+        try
+        {
+            // Verify the contact user exists
+            var contactGrain = _client.GetGrain<IUserGrain>(contactUserId);
+            var contactInfo = await contactGrain.GetContactInfoAsync();
+            if (contactInfo == null)
+            {
+                return NotFound(new { error = "User not found" });
+            }
+
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            await userGrain.AddContactAsync(contactUserId);
+
+            return Ok(new { message = "Contact added successfully", contact = contactInfo });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to add contact {ContactUserId} for user {UserId}", contactUserId, UserId);
+            return StatusCode(500, new { error = "Failed to add contact" });
+        }
+    }
+
+    /// <summary>
+    /// Remove a user from contacts.
+    /// </summary>
+    [HttpDelete("me/contacts/{contactUserId}")]
+    public async Task<ActionResult> RemoveContact(string contactUserId)
+    {
+        try
+        {
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            await userGrain.RemoveContactAsync(contactUserId);
+
+            return Ok(new { message = "Contact removed successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove contact {ContactUserId} for user {UserId}", contactUserId, UserId);
+            return StatusCode(500, new { error = "Failed to remove contact" });
+        }
+    }
+
+    /// <summary>
+    /// Search within the current user's contacts.
+    /// </summary>
+    [HttpGet("me/contacts/search")]
+    public async Task<ActionResult<List<ContactDto>>> SearchContacts([FromQuery] string query)
+    {
+        try
+        {
+            var userGrain = _client.GetGrain<IUserGrain>(UserId);
+            var contactIds = await userGrain.GetContactIdsAsync();
+
+            var matchingContacts = new List<ContactDto>();
+            var queryLower = query.ToLowerInvariant();
+
+            foreach (var contactId in contactIds)
+            {
+                var contactGrain = _client.GetGrain<IUserGrain>(contactId);
+                var contactInfo = await contactGrain.GetContactInfoAsync();
+                if (contactInfo != null)
+                {
+                    // Match against email or display name
+                    if (contactInfo.Email.ToLowerInvariant().Contains(queryLower) ||
+                        contactInfo.DisplayName.ToLowerInvariant().Contains(queryLower))
+                    {
+                        matchingContacts.Add(contactInfo);
+                    }
+                }
+            }
+
+            return Ok(matchingContacts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search contacts for user {UserId}", UserId);
+            return StatusCode(500, new { error = "Failed to search contacts" });
+        }
+    }
 }
 
 public record UpdateKeysDto(byte[] PublicKey, byte[] EncryptedPrivateKey, byte[] Salt);
+
+public record EnsureRegisteredResponse(UserProfileDto Profile, bool IsNewUser);

@@ -15,7 +15,10 @@ public class UserContextValidationFilter : IIncomingGrainCallFilter
     private static readonly HashSet<string> AllowedAnonymousMethods = new()
     {
         "RegisterAsync",
-        "GetPublicIdentityKeyAsync"
+        "GetPublicIdentityKeyAsync",
+        "GetInviteAsync",       // Allow viewing invite details without auth
+        "IsValidAsync",         // Allow checking invite validity without auth
+        "GetContactInfoAsync"   // Allow getting basic contact info for display
     };
 
     public UserContextValidationFilter(ILogger<UserContextValidationFilter> logger)
@@ -25,8 +28,17 @@ public class UserContextValidationFilter : IIncomingGrainCallFilter
 
     public async Task Invoke(IIncomingGrainCallContext context)
     {
-        var userId = RequestContext.Get("UserId") as string;
         var methodName = context.InterfaceMethod.Name;
+        var interfaceType = context.InterfaceMethod.DeclaringType;
+
+        // Skip validation for Orleans system grains (internal infrastructure)
+        if (interfaceType?.Namespace?.StartsWith("Orleans") == true)
+        {
+            await context.Invoke();
+            return;
+        }
+
+        var userId = RequestContext.Get("UserId") as string;
 
         // Allow anonymous access to registration and public key lookup
         if (AllowedAnonymousMethods.Contains(methodName))

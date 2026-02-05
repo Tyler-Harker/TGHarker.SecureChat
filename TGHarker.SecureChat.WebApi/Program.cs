@@ -9,6 +9,21 @@ var builder = WebApplication.CreateBuilder(args);
 // Add controllers
 builder.Services.AddControllers();
 
+// Configure CORS for frontend
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000"];
+
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
 // Add OpenAPI
 builder.Services.AddOpenApi();
 
@@ -16,9 +31,11 @@ builder.Services.AddOpenApi();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = builder.Configuration["Authentication:Authority"] ?? "https://identity.harker.dev";
-        options.Audience = builder.Configuration["Authentication:Audience"] ?? "securechat-api";
+        options.Authority = builder.Configuration["Authentication:Authority"] ?? "https://identity.harker.dev/tenant/harker";
+        options.Audience = builder.Configuration["Authentication:Audience"] ?? "securechat-webapi";
 
+        // Disable automatic claim mapping so 'sub' stays as 'sub'
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -27,7 +44,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ClockSkew = TimeSpan.Zero,
             NameClaimType = ClaimTypes.NameIdentifier,
-            RoleClaimType = ClaimTypes.Role
+            RoleClaimType = ClaimTypes.Role,
+            ValidIssuers = new[]
+            {
+                builder.Configuration["Authentication:Authority"] ?? "https://identity.harker.dev/tenant/harker"
+            },
+            ValidAudiences = new[]
+            {
+                builder.Configuration["Authentication:Audience"] ?? "securechat-webapi",
+                "securechat-web"
+            }
         };
 
         options.Events = new JwtBearerEvents
@@ -69,6 +95,9 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+// Enable CORS (must be before authentication)
+app.UseCors();
 
 app.UseHttpsRedirection();
 

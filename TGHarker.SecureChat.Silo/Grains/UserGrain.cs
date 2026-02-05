@@ -177,4 +177,114 @@ public class UserGrain : Grain, IUserGrain
         _state.State.LastActiveAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
     }
+
+    public async Task AddContactAsync(string contactUserId)
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        if (contactUserId == this.GetPrimaryKeyString())
+        {
+            throw new InvalidOperationException("Cannot add yourself as a contact");
+        }
+
+        if (_state.State.ContactUserIds.Add(contactUserId))
+        {
+            await _state.WriteStateAsync();
+            _logger.LogInformation("User {UserId} added contact {ContactUserId}",
+                _state.State.UserId, contactUserId);
+        }
+    }
+
+    public async Task RemoveContactAsync(string contactUserId)
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        if (_state.State.ContactUserIds.Remove(contactUserId))
+        {
+            await _state.WriteStateAsync();
+            _logger.LogInformation("User {UserId} removed contact {ContactUserId}",
+                _state.State.UserId, contactUserId);
+        }
+    }
+
+    public Task<List<string>> GetContactIdsAsync()
+    {
+        ValidateAccess();
+
+        if (!_state.State.IsRegistered)
+        {
+            throw new InvalidOperationException("User is not registered");
+        }
+
+        return Task.FromResult(_state.State.ContactUserIds.ToList());
+    }
+
+    public Task<ContactDto?> GetContactInfoAsync()
+    {
+        // Publicly accessible - returns basic info for display in contact lists
+        if (!_state.State.IsRegistered)
+        {
+            return Task.FromResult<ContactDto?>(null);
+        }
+
+        return Task.FromResult<ContactDto?>(new ContactDto(
+            UserId: _state.State.UserId,
+            Email: _state.State.Email,
+            DisplayName: _state.State.DisplayName
+        ));
+    }
+
+    public async Task<(UserProfileDto Profile, bool IsNewUser)> EnsureRegisteredAsync(string email, string displayName)
+    {
+        ValidateAccess();
+
+        var isNewUser = false;
+
+        if (!_state.State.IsRegistered)
+        {
+            var userId = this.GetPrimaryKeyString();
+            _state.State.UserId = userId;
+            _state.State.Email = email;
+            _state.State.DisplayName = displayName;
+            _state.State.IdentityKeys = null; // No crypto keys yet - can be set up later
+            _state.State.CreatedAt = DateTime.UtcNow;
+            _state.State.LastActiveAt = DateTime.UtcNow;
+            _state.State.IsRegistered = true;
+
+            await _state.WriteStateAsync();
+            _logger.LogInformation("User {UserId} auto-registered via EnsureRegistered", userId);
+            isNewUser = true;
+        }
+        else
+        {
+            // Update last active timestamp
+            _state.State.LastActiveAt = DateTime.UtcNow;
+            await _state.WriteStateAsync();
+        }
+
+        var profile = new UserProfileDto(
+            UserId: _state.State.UserId,
+            Email: _state.State.Email,
+            DisplayName: _state.State.DisplayName,
+            PublicIdentityKey: _state.State.IdentityKeys?.PublicIdentityKey ?? Array.Empty<byte>(),
+            CreatedAt: _state.State.CreatedAt
+        );
+
+        return (profile, isNewUser);
+    }
+
+    public Task<bool> IsRegisteredAsync()
+    {
+        return Task.FromResult(_state.State.IsRegistered);
+    }
 }

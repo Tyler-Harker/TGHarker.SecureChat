@@ -3,6 +3,10 @@
  * Implements X25519 key exchange and AES-256-GCM encryption
  */
 
+// Helper to work around TypeScript's strict Uint8Array typing with Web Crypto API
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const asBuffer = (arr: Uint8Array): BufferSource => arr as any;
+
 export interface UserIdentityKeys {
   publicKey: Uint8Array;
   privateKey: Uint8Array;
@@ -76,7 +80,7 @@ export async function deriveKEKFromPassword(
   return await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt,
+      salt: asBuffer(salt),
       iterations: 600000, // OWASP recommendation for 2024+
       hash: "SHA-256",
     },
@@ -100,7 +104,7 @@ export async function decryptPrivateKey(
 
   return await crypto.subtle.importKey(
     "pkcs8",
-    decryptedPrivateKey,
+    asBuffer(decryptedPrivateKey),
     {
       name: "ECDH",
       namedCurve: "X25519",
@@ -121,7 +125,7 @@ export async function deriveConversationKey(
   // Import the other party's public key
   const theirPublicKey = await crypto.subtle.importKey(
     "raw",
-    theirPublicKeyBytes,
+    asBuffer(theirPublicKeyBytes),
     {
       name: "ECDH",
       namedCurve: "X25519",
@@ -156,8 +160,8 @@ export async function deriveConversationKey(
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: new Uint8Array(0),
-      info,
+      salt: asBuffer(new Uint8Array(0)),
+      info: asBuffer(info),
     },
     importedSecret,
     { name: "AES-GCM", length: 256 },
@@ -182,10 +186,10 @@ export async function encryptMessage(
     await crypto.subtle.encrypt(
       {
         name: "AES-GCM",
-        iv: nonce,
+        iv: asBuffer(nonce),
       },
       conversationKey,
-      plaintextBytes
+      asBuffer(plaintextBytes)
     )
   );
 
@@ -206,10 +210,10 @@ export async function decryptMessage(
   const plaintextBytes = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv: encrypted.nonce,
+      iv: asBuffer(encrypted.nonce),
     },
     conversationKey,
-    encrypted.ciphertext
+    asBuffer(encrypted.ciphertext)
   );
 
   const decoder = new TextDecoder();
@@ -229,10 +233,10 @@ async function encryptWithAESGCM(
     await crypto.subtle.encrypt(
       {
         name: "AES-GCM",
-        iv: nonce,
+        iv: asBuffer(nonce),
       },
       key,
-      data
+      asBuffer(data)
     )
   );
 
@@ -259,10 +263,10 @@ async function decryptWithAESGCM(
     await crypto.subtle.decrypt(
       {
         name: "AES-GCM",
-        iv: nonce,
+        iv: asBuffer(nonce),
       },
       key,
-      ciphertext
+      asBuffer(ciphertext)
     )
   );
 }
@@ -292,14 +296,17 @@ export async function storeKeysInIndexedDB(
   const tx = db.transaction("keys", "readwrite");
   const store = tx.objectStore("keys");
 
-  await store.put({
+  const request = store.put({
     userId,
     publicKey: keys.publicKey,
     privateKey: keys.privateKey,
     salt: keys.salt,
   });
 
-  await tx.done;
+  await new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
 }
 
 /**
@@ -312,10 +319,14 @@ export async function getKeysFromIndexedDB(
   const tx = db.transaction("keys", "readonly");
   const store = tx.objectStore("keys");
 
-  const result = await store.get(userId);
-  await tx.done;
+  const request = store.get(userId);
 
-  return result || null;
+  const result = await new Promise<UserIdentityKeys | null>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+
+  return result;
 }
 
 /**

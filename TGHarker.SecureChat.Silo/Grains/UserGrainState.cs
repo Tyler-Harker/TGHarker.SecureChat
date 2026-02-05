@@ -29,4 +29,7 @@ public class UserGrainState
 
     [Id(7)]
     public bool IsRegistered { get; set; }
+
+    [Id(8)]
+    public HashSet<string> ContactUserIds { get; set; } = new();
 }

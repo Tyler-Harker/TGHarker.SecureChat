@@ -24,3 +24,19 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Safe area support for mobile devices with notches/home indicators */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Ensure the app fills the viewport properly on mobile */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}

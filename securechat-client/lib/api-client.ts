@@ -41,8 +41,7 @@ export interface Message {
 
 export interface CreateConversationRequest {
   participantUserIds: string[];
-  conversationKeyEncrypted: string; // Base64
-  conversationNonceEncrypted: string; // Base64
+  encryptedConversationKeys: Record<string, string>; // userId -> Base64-encoded encrypted key
 }
 
 export interface PostMessageRequest {
@@ -52,11 +51,45 @@ export interface PostMessageRequest {
   parentMessageId?: string;
 }
 
+export interface Contact {
+  userId: string;
+  email: string;
+  displayName: string;
+}
+
+export interface CreateInviteResponse {
+  inviteId: string;
+  inviteSecret: string;
+  inviteSecretCode: string;
+  inviteUrl: string;
+  expiresAt: string;
+}
+
+export interface ContactInviteInfo {
+  inviteId: string;
+  creatorUserId: string;
+  creatorDisplayName: string;
+  createdAt: string;
+  expiresAt: string;
+  isAccepted: boolean;
+}
+
+export interface AcceptInviteResult {
+  success: boolean;
+  error?: string;
+  newContact?: Contact;
+}
+
+export interface EnsureRegisteredResponse {
+  profile: UserProfile;
+  isNewUser: boolean;
+}
+
 export class ApiClient {
   private baseUrl: string;
   private accessToken: string | null = null;
 
-  constructor(baseUrl: string = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000") {
+  constructor(baseUrl: string = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5280") {
     this.baseUrl = baseUrl;
   }
 
@@ -72,9 +105,9 @@ export class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     };
 
     if (this.accessToken) {
@@ -109,6 +142,12 @@ export class ApiClient {
     return this.fetch<UserProfile>("/api/users/me");
   }
 
+  async ensureRegistered(): Promise<EnsureRegisteredResponse> {
+    return this.fetch<EnsureRegisteredResponse>("/api/users/me/ensure", {
+      method: "POST",
+    });
+  }
+
   async getPublicKey(userId: string): Promise<{ publicKey: string }> {
     return this.fetch<{ publicKey: string }>(`/api/users/${userId}/publickey`);
   }
@@ -137,18 +176,71 @@ export class ApiClient {
     );
   }
 
+  // ===== Contact Endpoints =====
+
+  async getMyContacts(): Promise<Contact[]> {
+    return this.fetch<Contact[]>("/api/users/me/contacts");
+  }
+
+  async addContact(contactUserId: string): Promise<{ message: string; contact: Contact }> {
+    return this.fetch<{ message: string; contact: Contact }>(
+      `/api/users/me/contacts/${encodeURIComponent(contactUserId)}`,
+      { method: "POST" }
+    );
+  }
+
+  async removeContact(contactUserId: string): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/users/me/contacts/${encodeURIComponent(contactUserId)}`,
+      { method: "DELETE" }
+    );
+  }
+
+  async searchContacts(query: string): Promise<Contact[]> {
+    return this.fetch<Contact[]>(
+      `/api/users/me/contacts/search?query=${encodeURIComponent(query)}`
+    );
+  }
+
+  // ===== Contact Invite Endpoints =====
+
+  async createInvite(): Promise<CreateInviteResponse> {
+    return this.fetch<CreateInviteResponse>("/api/invites", {
+      method: "POST",
+    });
+  }
+
+  async getInvite(inviteId: string): Promise<ContactInviteInfo> {
+    return this.fetch<ContactInviteInfo>(`/api/invites/${inviteId}`);
+  }
+
+  async acceptInvite(
+    inviteId: string,
+    inviteSecret: string,
+    inviteSecretCode: string
+  ): Promise<AcceptInviteResult> {
+    return this.fetch<AcceptInviteResult>(`/api/invites/${inviteId}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ inviteSecret, inviteSecretCode }),
+    });
+  }
+
+  async isInviteValid(inviteId: string): Promise<boolean> {
+    const result = await this.fetch<{ valid: boolean }>(
+      `/api/invites/${inviteId}/valid`
+    );
+    return result.valid;
+  }
+
   // ===== Conversation Endpoints =====
 
   async createConversation(
     request: CreateConversationRequest
-  ): Promise<{ conversationId: string; createdAt: string }> {
-    return this.fetch<{ conversationId: string; createdAt: string }>(
-      "/api/conversations",
-      {
-        method: "POST",
-        body: JSON.stringify(request),
-      }
-    );
+  ): Promise<Conversation> {
+    return this.fetch<Conversation>("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
   }
 
   async getConversation(conversationId: string): Promise<Conversation> {

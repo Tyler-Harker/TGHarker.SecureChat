@@ -26,3 +26,10 @@ public record UserSearchResult(
     string Email,
     string DisplayName
 );
+
+[GenerateSerializer]
+public record ContactDto(
+    string UserId,
+    string Email,
+    string DisplayName
+);

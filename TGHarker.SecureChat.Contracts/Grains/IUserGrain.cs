@@ -54,4 +54,39 @@ public interface IUserGrain : IGrainWithStringKey
     /// Updates the user's last active timestamp.
     /// </summary>
     Task UpdateLastActiveAsync();
+
+    /// <summary>
+    /// Adds a user as a contact.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task AddContactAsync(string contactUserId);
+
+    /// <summary>
+    /// Removes a user from contacts.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task RemoveContactAsync(string contactUserId);
+
+    /// <summary>
+    /// Gets the list of contact user IDs.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task<List<string>> GetContactIdsAsync();
+
+    /// <summary>
+    /// Gets basic profile info for display (publicly accessible for contacts).
+    /// Returns null if user is not registered.
+    /// </summary>
+    Task<ContactDto?> GetContactInfoAsync();
+
+    /// <summary>
+    /// Ensures the user is registered. If not, creates a minimal registration.
+    /// Returns the profile and whether this was a new registration.
+    /// </summary>
+    Task<(UserProfileDto Profile, bool IsNewUser)> EnsureRegisteredAsync(string email, string displayName);
+
+    /// <summary>
+    /// Checks if the user is registered.
+    /// </summary>
+    Task<bool> IsRegisteredAsync();
 }
