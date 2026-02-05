@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type Conversation } from "@/lib/api-client";
@@ -276,8 +276,10 @@ function ChatsContent() {
 
 export default function ChatsPage() {
   return (
-    <AuthGuard>
-      <ChatsContent />
-    </AuthGuard>
+    <Suspense fallback={<SplashScreen />}>
+      <AuthGuard>
+        <ChatsContent />
+      </AuthGuard>
+    </Suspense>
   );
 }

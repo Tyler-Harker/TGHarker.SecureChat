@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, type UserProfile } from "@/lib/api-client";
 import SplashScreen from "@/components/SplashScreen";
@@ -223,8 +223,10 @@ function SettingsContent() {
 
 export default function SettingsPage() {
   return (
-    <AuthGuard>
-      <SettingsContent />
-    </AuthGuard>
+    <Suspense fallback={<SplashScreen />}>
+      <AuthGuard>
+        <SettingsContent />
+      </AuthGuard>
+    </Suspense>
   );
 }

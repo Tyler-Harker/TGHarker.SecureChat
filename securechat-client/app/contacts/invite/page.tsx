@@ -235,10 +235,10 @@ function InviteAcceptContent() {
 
 export default function InviteAcceptPage() {
   return (
-    <AuthGuard>
-      <Suspense fallback={<SplashScreen />}>
+    <Suspense fallback={<SplashScreen />}>
+      <AuthGuard>
         <InviteAcceptContent />
-      </Suspense>
-    </AuthGuard>
+      </AuthGuard>
+    </Suspense>
   );
 }

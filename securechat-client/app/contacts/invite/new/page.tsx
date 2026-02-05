@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { apiClient, type CreateInviteResponse } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
 import AuthGuard from "@/components/AuthGuard";
+import SplashScreen from "@/components/SplashScreen";
 
 function GenerateInviteContent() {
   const router = useRouter();
@@ -301,8 +302,10 @@ function GenerateInviteContent() {
 
 export default function GenerateInvitePage() {
   return (
-    <AuthGuard>
-      <GenerateInviteContent />
-    </AuthGuard>
+    <Suspense fallback={<SplashScreen />}>
+      <AuthGuard>
+        <GenerateInviteContent />
+      </AuthGuard>
+    </Suspense>
   );
 }

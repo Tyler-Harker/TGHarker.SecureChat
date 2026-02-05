@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type Contact, type Conversation } from "@/lib/api-client";
@@ -290,8 +290,10 @@ function ContactsContent() {
 
 export default function ContactsPage() {
   return (
-    <AuthGuard>
-      <ContactsContent />
-    </AuthGuard>
+    <Suspense fallback={<SplashScreen />}>
+      <AuthGuard>
+        <ContactsContent />
+      </AuthGuard>
+    </Suspense>
   );
 }
