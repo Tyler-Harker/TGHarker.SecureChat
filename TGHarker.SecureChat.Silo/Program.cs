@@ -29,12 +29,14 @@ builder.UseOrleans(siloBuilder =>
     siloBuilder.AddAzureBlobGrainStorageAsDefault(options =>
     {
         options.BlobServiceClient = blobServiceClient;
+        options.ContainerName = "securechat-grainstate";
     });
 
     // Add named blob storage provider
     siloBuilder.AddAzureBlobGrainStorage("AzureBlobStorage", options =>
     {
         options.BlobServiceClient = blobServiceClient;
+        options.ContainerName = "securechat-grainstate";
     });
 
     // TODO: Wrap with searchable storage after Orleans.Search is configured
