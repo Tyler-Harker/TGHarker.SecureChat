@@ -14,11 +14,25 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
+/**
+ * Waits for a service worker registration with a timeout.
+ * navigator.serviceWorker.ready never rejects and hangs forever if no SW is registered.
+ */
+function getServiceWorkerRegistration(
+  timeoutMs = 5000
+): Promise<ServiceWorkerRegistration | null> {
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+}
+
 export function usePushNotifications() {
   const [permissionState, setPermissionState] =
     useState<PushPermissionState>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const vapidKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -29,7 +43,11 @@ export function usePushNotifications() {
 
     setPermissionState(Notification.permission as PushPermissionState);
 
-    navigator.serviceWorker.ready.then((registration) => {
+    getServiceWorkerRegistration().then((registration) => {
+      if (!registration) {
+        console.warn("Service worker not available — push notifications won't work until the PWA service worker is registered.");
+        return;
+      }
       registration.pushManager.getSubscription().then((subscription) => {
         setIsSubscribed(subscription !== null);
       });
@@ -63,6 +81,7 @@ export function usePushNotifications() {
     if (permissionState === "unsupported") return;
 
     setIsLoading(true);
+    setError(null);
     try {
       const permission = await Notification.requestPermission();
       setPermissionState(permission as PushPermissionState);
@@ -70,7 +89,12 @@ export function usePushNotifications() {
       if (permission !== "granted") return;
 
       const vapidKey = await getVapidKey();
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await getServiceWorkerRegistration(10000);
+
+      if (!registration) {
+        setError("Service worker not available. Push notifications require the app to be installed as a PWA or running in production mode.");
+        return;
+      }
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -92,7 +116,10 @@ export function usePushNotifications() {
   const unsubscribe = useCallback(async () => {
     setIsLoading(true);
     try {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await getServiceWorkerRegistration();
+
+      if (!registration) return;
+
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
@@ -112,6 +139,7 @@ export function usePushNotifications() {
     permissionState,
     isSubscribed,
     isLoading,
+    error,
     subscribe,
     unsubscribe,
   };
