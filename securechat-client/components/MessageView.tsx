@@ -317,9 +317,9 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
   }
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex h-full flex-1 overflow-hidden">
       {/* Main Chat Area */}
-      <div className={`flex flex-1 flex-col ${activeThread ? "hidden md:flex" : "flex"}`}>
+      <div className={`flex h-full flex-1 flex-col ${activeThread ? "hidden md:flex" : "flex"}`}>
         {/* Header */}
         <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex items-center gap-3">

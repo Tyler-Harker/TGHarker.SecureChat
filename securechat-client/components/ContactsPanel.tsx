@@ -7,10 +7,11 @@ import { apiClient, type Contact } from "@/lib/api-client";
 interface ContactsPanelProps {
   onClose?: () => void;
   onStartConversation?: (contact: Contact) => void;
+  onGenerateInvite?: () => void;
   showHeader?: boolean;
 }
 
-export default function ContactsPanel({ onClose, onStartConversation, showHeader = true }: ContactsPanelProps) {
+export default function ContactsPanel({ onClose, onStartConversation, onGenerateInvite, showHeader = true }: ContactsPanelProps) {
   const router = useRouter();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -142,7 +143,13 @@ export default function ContactsPanel({ onClose, onStartConversation, showHeader
       {/* Invite Button */}
       <div className="border-b border-gray-200 p-4 dark:border-gray-700">
         <button
-          onClick={() => router.push("/contacts/invite/new")}
+          onClick={() => {
+            if (onGenerateInvite) {
+              onGenerateInvite();
+            } else {
+              router.push("/contacts/invite/new");
+            }
+          }}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
