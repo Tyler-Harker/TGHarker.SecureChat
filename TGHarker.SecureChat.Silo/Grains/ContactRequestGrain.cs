@@ -70,6 +70,25 @@ public class ContactRequestGrain : Grain, IContactRequestGrain
             CreatedAt: _state.State.CreatedAt
         ));
 
+        // Send push notification to recipient
+        try
+        {
+            var pushGrain = GrainFactory.GetGrain<IPushNotificationGrain>(toUserId);
+            pushGrain.SendNotificationAsync(new PushNotificationPayload(
+                Type: "contact_request",
+                Title: "New Contact Request",
+                Body: $"{fromUserDisplayName} wants to connect with you",
+                Url: "/contacts",
+                ConversationId: null,
+                SenderUserId: fromUserId,
+                Tag: $"contact-request-{requestId}"
+            )).Ignore();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send push notification for contact request");
+        }
+
         _logger.LogInformation("Contact request {RequestId} created from {FromUser} to {ToUser}",
             requestId, fromUserId, toUserId);
     }
@@ -141,6 +160,25 @@ public class ContactRequestGrain : Grain, IContactRequestGrain
         if (toUserContact != null)
         {
             await PublishContactRequestAcceptedEvent(_state.State.ToUserId, fromUserContact);
+        }
+
+        // Send push notification to the original requester
+        try
+        {
+            var pushGrain = GrainFactory.GetGrain<IPushNotificationGrain>(_state.State.FromUserId);
+            pushGrain.SendNotificationAsync(new PushNotificationPayload(
+                Type: "contact_request_accepted",
+                Title: "Contact Request Accepted",
+                Body: $"{toUserContact?.DisplayName ?? "Someone"} accepted your contact request",
+                Url: "/contacts",
+                ConversationId: null,
+                SenderUserId: _state.State.ToUserId,
+                Tag: $"contact-request-{_state.State.RequestId}"
+            )).Ignore();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send push notification for contact request acceptance");
         }
 
         _logger.LogInformation("Contact request {RequestId} accepted", _state.State.RequestId);

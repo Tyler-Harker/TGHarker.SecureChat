@@ -333,6 +333,30 @@ public class ConversationGrain : Grain, IConversationGrain
             await _eventStream.OnNextAsync(eventJson);
         }
 
+        // Send push notifications to all participants except the sender
+        foreach (var participantId in _state.State.ParticipantUserIds)
+        {
+            if (participantId == senderUserId) continue;
+
+            try
+            {
+                var pushGrain = GrainFactory.GetGrain<IPushNotificationGrain>(participantId);
+                pushGrain.SendNotificationAsync(new PushNotificationPayload(
+                    Type: "new_message",
+                    Title: "New Message",
+                    Body: "You received a new message",
+                    Url: $"/chats?conversation={_state.State.ConversationId}",
+                    ConversationId: _state.State.ConversationId.ToString(),
+                    SenderUserId: senderUserId,
+                    Tag: $"conversation-{_state.State.ConversationId}"
+                )).Ignore();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send push notification to user {UserId}", participantId);
+            }
+        }
+
         return messageDto;
     }
 

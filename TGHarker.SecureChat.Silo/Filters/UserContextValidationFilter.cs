@@ -18,7 +18,8 @@ public class UserContextValidationFilter : IIncomingGrainCallFilter
         "GetPublicIdentityKeyAsync",
         "GetInviteAsync",       // Allow viewing invite details without auth
         "IsValidAsync",         // Allow checking invite validity without auth
-        "GetContactInfoAsync"   // Allow getting basic contact info for display
+        "GetContactInfoAsync",  // Allow getting basic contact info for display
+        "SendNotificationAsync" // Called grain-to-grain with sender's context, not recipient's
     };
 
     public UserContextValidationFilter(ILogger<UserContextValidationFilter> logger)

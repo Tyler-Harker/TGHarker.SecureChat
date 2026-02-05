@@ -15,6 +15,7 @@ export default withPWA({
   dest: "public",
   register: true,
   skipWaiting: true,
+  // next-pwa auto-detects worker/ directory (customWorkerDir defaults to "worker")
   // Set ENABLE_PWA=true to test PWA in development
   disable: process.env.NODE_ENV === "development" && process.env.ENABLE_PWA !== "true",
-})(nextConfig);
+} as Parameters<typeof withPWA>[0])(nextConfig);

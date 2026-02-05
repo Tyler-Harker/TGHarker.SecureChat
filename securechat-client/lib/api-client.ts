@@ -405,6 +405,41 @@ export class ApiClient {
       `/api/conversations/${conversationId}/messages/${messageId}/read`
     );
   }
+  // ===== Push Notification Endpoints =====
+
+  async getVapidPublicKey(): Promise<{ publicKey: string }> {
+    return this.fetch<{ publicKey: string }>("/api/push/vapid-public-key");
+  }
+
+  async subscribePush(
+    subscription: PushSubscription,
+    deviceLabel?: string
+  ): Promise<{ message: string }> {
+    // toJSON() provides keys already in base64url format, which the WebPush C# library expects
+    const json = subscription.toJSON();
+    if (!json.keys?.p256dh || !json.keys?.auth) {
+      throw new Error("Push subscription missing required keys");
+    }
+
+    return this.fetch<{ message: string }>("/api/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify({
+        endpoint: json.endpoint,
+        keys: {
+          p256dh: json.keys.p256dh,
+          auth: json.keys.auth,
+        },
+        deviceLabel,
+      }),
+    });
+  }
+
+  async unsubscribePush(endpoint: string): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>("/api/push/unsubscribe", {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    });
+  }
 }
 
 // Export a singleton instance

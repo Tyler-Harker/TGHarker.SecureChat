@@ -14,6 +14,7 @@
     <PackageReference Include="Microsoft.Orleans.Server" Version="10.0.0" />
     <PackageReference Include="Microsoft.Orleans.Streaming" Version="10.0.0" />
     <PackageReference Include="TGHarker.Orleans.Search" Version="1.0.11" />
+    <PackageReference Include="WebPush" Version="1.0.12" />
   </ItemGroup>
 
   <ItemGroup>

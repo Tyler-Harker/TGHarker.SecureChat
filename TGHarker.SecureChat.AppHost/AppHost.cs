@@ -13,18 +13,28 @@ storage.RunAsEmulator();
 var tableStorage = storage.AddTables("tableStorage");
 var blobStorage = storage.AddBlobs("blobStorage");
 
+// VAPID keys for Web Push notifications
+// Generate with: npx web-push generate-vapid-keys
+var vapidSubject = builder.AddParameter("vapidSubject", secret: false);
+var vapidPublicKey = builder.AddParameter("vapidPublicKey", secret: false);
+var vapidPrivateKey = builder.AddParameter("vapidPrivateKey", secret: true);
+
 var silo = builder.AddProject<TGHarker_SecureChat_Silo>("silo")
     .WithReference(searchDb)
     .WithReference(tableStorage)
     .WithReference(blobStorage)
     .WaitFor(searchDb)
     .WaitFor(tableStorage)
-    .WaitFor(blobStorage);
+    .WaitFor(blobStorage)
+    .WithEnvironment("Vapid__Subject", vapidSubject)
+    .WithEnvironment("Vapid__PublicKey", vapidPublicKey)
+    .WithEnvironment("Vapid__PrivateKey", vapidPrivateKey);
 
 // Next.js Frontend - define first to get endpoint for CORS
 var frontend = builder.AddNpmApp("frontend", "../securechat-client", "dev")
     .WithHttpEndpoint(port: 3000, env: "PORT")
     .WithEnvironment("NEXT_PUBLIC_AUTH_AUTHORITY", "https://identity.harker.dev/tenant/harker")
+    .WithEnvironment("ENABLE_PWA", "true")
     .WithExternalHttpEndpoints();
 
 var api = builder.AddProject<TGHarker_SecureChat_WebApi>("webapi")
@@ -32,7 +42,8 @@ var api = builder.AddProject<TGHarker_SecureChat_WebApi>("webapi")
     .WaitFor(silo)
     .WithExternalHttpEndpoints()
     .WithEnvironment("Cors__AllowedOrigins__0", frontend.GetEndpoint("http"))
-    .WithEnvironment("Frontend__BaseUrl", frontend.GetEndpoint("http"));
+    .WithEnvironment("Frontend__BaseUrl", frontend.GetEndpoint("http"))
+    .WithEnvironment("Vapid__PublicKey", vapidPublicKey);
 
 // Inject API URL into frontend (use HTTPS endpoint)
 frontend.WithEnvironment("NEXT_PUBLIC_API_URL", api.GetEndpoint("https"));

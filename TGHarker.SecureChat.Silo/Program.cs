@@ -3,6 +3,7 @@ using Orleans.Hosting;
 using TGHarker.SecureChat.Contracts.Services;
 using TGHarker.SecureChat.Silo.Filters;
 using TGHarker.SecureChat.Silo.Services;
+using WebPush;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,21 @@ var builder = WebApplication.CreateBuilder(args);
 var blobServiceClient = new BlobServiceClient(builder.Configuration.GetConnectionString("blobStorage"));
 builder.Services.AddSingleton(blobServiceClient);
 builder.Services.AddSingleton<IMessageStorageService, MessageStorageService>();
+
+// Register WebPushClient with VAPID credentials
+builder.Services.AddSingleton(_ =>
+{
+    var vapidSubject = builder.Configuration["Vapid:Subject"] ?? "";
+    var vapidPublicKey = builder.Configuration["Vapid:PublicKey"] ?? "";
+    var vapidPrivateKey = builder.Configuration["Vapid:PrivateKey"] ?? "";
+
+    var client = new WebPushClient();
+    if (!string.IsNullOrEmpty(vapidPublicKey) && !string.IsNullOrEmpty(vapidPrivateKey))
+    {
+        client.SetVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    }
+    return client;
+});
 
 // TODO: Configure TGHarker.Orleans.Search
 // After setting up source generation in grain state classes, uncomment and configure:

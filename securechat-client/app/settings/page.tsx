@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiClient, type UserProfile } from "@/lib/api-client";
 import SplashScreen from "@/components/SplashScreen";
 import AuthGuard from "@/components/AuthGuard";
+import NotificationSettings from "@/components/NotificationSettings";
 
 function SettingsContent() {
   const router = useRouter();
@@ -163,6 +164,13 @@ function SettingsContent() {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="mt-6 rounded-xl bg-white p-6 shadow-lg dark:bg-gray-800">
+            <h2 className="mb-6 text-lg font-semibold text-gray-900 dark:text-white">
+              Notifications
+            </h2>
+            <NotificationSettings />
           </div>
         </div>
       </main>
