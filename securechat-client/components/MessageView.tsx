@@ -48,6 +48,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const messageElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
   const activeThreadRef = useRef<Message | null>(null); // Ref to track active thread for SSE handler
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     isInitialLoadRef.current = true;
@@ -73,165 +74,222 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     }
   }, [threadReplies, activeThread]);
 
-  // Set up SSE connection to listen for new messages
+  // Handle incoming SSE event data
+  const handleSseEvent = useCallback((data: Record<string, unknown>) => {
+    if (data.type === "message") {
+      const newMsg = data.message as Message;
+
+      // If it's a reply to the currently open thread, add it to thread replies
+      if (newMsg.parentMessageId && activeThreadRef.current?.messageId === newMsg.parentMessageId) {
+        setThreadReplies((prev) => {
+          const exists = prev.some((m) => m.messageId === newMsg.messageId);
+          if (exists) return prev;
+          return [...prev, newMsg];
+        });
+      }
+
+      // Add message if it doesn't already exist (prevent duplicates from optimistic updates)
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.messageId === newMsg.messageId);
+        if (exists) {
+          return prev;
+        }
+        // Scroll to bottom for new messages
+        requestAnimationFrame(() => scrollToBottom());
+        return [...prev, newMsg];
+      });
+
+      // Notify parent about new incoming message from another user
+      if (newMsg.senderId !== user?.sub && onUnreadActivity) {
+        onUnreadActivity();
+      }
+    } else if (data.type === "new_message_indicator") {
+      // A message was sent in a different conversation — notify parent for badge
+      if (onUnreadActivity) {
+        onUnreadActivity();
+      }
+    } else if (data.type === "conversation_deleted") {
+      // A conversation was deleted — may or may not be the one we're viewing
+      const deletedId = data.conversationId as string;
+      console.log("Conversation deleted:", deletedId);
+      if (onDelete) {
+        onDelete(deletedId);
+      }
+      // If the deleted conversation is the one we're viewing, navigate away
+      if (deletedId === conversationId && onBack && !onDelete) {
+        onBack();
+      }
+    } else if (data.type === "conversation_created") {
+      const newConversation = data.conversation as Conversation;
+      if (onConversationCreated) {
+        onConversationCreated(newConversation);
+      }
+    } else if (data.type === "read_receipt") {
+      // Update read receipts for the message
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.messageId === data.messageId) {
+            const readBy = m.readBy || [];
+            if (!readBy.includes(data.userId as string)) {
+              return { ...m, readBy: [...readBy, data.userId as string] };
+            }
+          }
+          return m;
+        })
+      );
+    } else if (data.type === "reaction_added") {
+      const addReaction = (msgs: Message[]) =>
+        msgs.map((m) => {
+          if (m.messageId === data.messageId) {
+            const reactions = { ...(m.reactions || {}) };
+            const users = reactions[data.emoji as string] || [];
+            if (!users.includes(data.userId as string)) {
+              reactions[data.emoji as string] = [...users, data.userId as string];
+            }
+            return { ...m, reactions };
+          }
+          return m;
+        });
+      setMessages(addReaction);
+      setThreadReplies(addReaction);
+      setActiveThread((prev) => (prev ? addReaction([prev])[0] : null));
+    } else if (data.type === "reaction_removed") {
+      const removeReaction = (msgs: Message[]) =>
+        msgs.map((m) => {
+          if (m.messageId === data.messageId) {
+            const reactions = { ...(m.reactions || {}) };
+            const users = (reactions[data.emoji as string] || []).filter(
+              (id: string) => id !== data.userId
+            );
+            if (users.length === 0) {
+              delete reactions[data.emoji as string];
+            } else {
+              reactions[data.emoji as string] = users;
+            }
+            return { ...m, reactions };
+          }
+          return m;
+        });
+      setMessages(removeReaction);
+      setThreadReplies(removeReaction);
+      setActiveThread((prev) => (prev ? removeReaction([prev])[0] : null));
+    } else if (data.type === "contact_request") {
+      // Received a contact request
+      const request = data.request as ContactRequest;
+      setContactRequests((prev) => new Map(prev).set(request.fromUserId, request));
+    } else if (data.type === "contact_request_accepted") {
+      // Contact request was accepted
+      const contact = data.contact as Contact;
+      setContacts((prev) => [...prev, contact]);
+      setSentContactRequests((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(contact.userId);
+        return newSet;
+      });
+    } else if (data.type === "contact_request_declined") {
+      // Contact request was declined
+      const userId = data.userId as string;
+      setSentContactRequests((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
+    }
+  }, [conversationId, user?.sub, onUnreadActivity, onDelete, onBack, onConversationCreated]);
+
+  // Refetch messages and conversation data (used on SSE reconnect to fill gaps)
+  const refetchData = useCallback(async () => {
+    try {
+      const [fetchedMessages, conversationData, contactsData] = await Promise.all([
+        apiClient.getMessages(conversationId, 0, PAGE_SIZE),
+        apiClient.getConversation(conversationId),
+        apiClient.getMyContacts(),
+      ]);
+      setMessages(fetchedMessages);
+      setConversation(conversationData);
+      setContacts(contactsData);
+      setHasMoreMessages(fetchedMessages.length >= PAGE_SIZE);
+
+      // If a thread is open, refetch its replies too
+      if (activeThreadRef.current) {
+        const replies = await apiClient.getMessageReplies(conversationId, activeThreadRef.current.messageId);
+        setThreadReplies(replies);
+      }
+    } catch (error) {
+      console.error("Failed to refetch data after reconnect:", error);
+    }
+  }, [conversationId]);
+
+  // Set up SSE connection with auto-reconnect
   useEffect(() => {
     if (!conversationId || !accessToken) return;
 
-    // Prevent duplicate connections (React StrictMode issue)
-    if (eventSourceRef.current) {
-      return;
-    }
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000; // Start at 1s, exponential backoff up to 30s
+    const MAX_RETRY_DELAY = 30000;
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5280";
-    const sseUrl = `${apiUrl}/api/conversations/${conversationId}/events`;
+    const connect = () => {
+      if (cancelled) return;
 
-    // Create EventSource with authorization via query parameter
-    const eventSource = new EventSource(`${sseUrl}?access_token=${accessToken}`);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onopen = () => {
-      console.log("SSE connection opened for conversation", conversationId);
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === "message") {
-          const newMsg = data.message as Message;
-
-          // If it's a reply to the currently open thread, add it to thread replies
-          if (newMsg.parentMessageId && activeThreadRef.current?.messageId === newMsg.parentMessageId) {
-            setThreadReplies((prev) => {
-              const exists = prev.some((m) => m.messageId === newMsg.messageId);
-              if (exists) return prev;
-              return [...prev, newMsg];
-            });
-          }
-
-          // Add message if it doesn't already exist (prevent duplicates from optimistic updates)
-          setMessages((prev) => {
-            const exists = prev.some((m) => m.messageId === newMsg.messageId);
-            if (exists) {
-              return prev;
-            }
-            // Scroll to bottom for new messages
-            requestAnimationFrame(() => scrollToBottom());
-            return [...prev, newMsg];
-          });
-
-          // Notify parent about new incoming message from another user
-          if (newMsg.senderId !== user?.sub && onUnreadActivity) {
-            onUnreadActivity();
-          }
-        } else if (data.type === "new_message_indicator") {
-          // A message was sent in a different conversation — notify parent for badge
-          if (onUnreadActivity) {
-            onUnreadActivity();
-          }
-        } else if (data.type === "conversation_deleted") {
-          // A conversation was deleted — may or may not be the one we're viewing
-          const deletedId = data.conversationId as string;
-          console.log("Conversation deleted:", deletedId);
-          if (onDelete) {
-            onDelete(deletedId);
-          }
-          // If the deleted conversation is the one we're viewing, navigate away
-          if (deletedId === conversationId && onBack && !onDelete) {
-            onBack();
-          }
-        } else if (data.type === "conversation_created") {
-          const newConversation = data.conversation as Conversation;
-          if (onConversationCreated) {
-            onConversationCreated(newConversation);
-          }
-        } else if (data.type === "read_receipt") {
-          // Update read receipts for the message
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.messageId === data.messageId) {
-                const readBy = m.readBy || [];
-                if (!readBy.includes(data.userId)) {
-                  return { ...m, readBy: [...readBy, data.userId] };
-                }
-              }
-              return m;
-            })
-          );
-        } else if (data.type === "reaction_added") {
-          const addReaction = (msgs: Message[]) =>
-            msgs.map((m) => {
-              if (m.messageId === data.messageId) {
-                const reactions = { ...(m.reactions || {}) };
-                const users = reactions[data.emoji] || [];
-                if (!users.includes(data.userId)) {
-                  reactions[data.emoji] = [...users, data.userId];
-                }
-                return { ...m, reactions };
-              }
-              return m;
-            });
-          setMessages(addReaction);
-          setThreadReplies(addReaction);
-          setActiveThread((prev) => (prev ? addReaction([prev])[0] : null));
-        } else if (data.type === "reaction_removed") {
-          const removeReaction = (msgs: Message[]) =>
-            msgs.map((m) => {
-              if (m.messageId === data.messageId) {
-                const reactions = { ...(m.reactions || {}) };
-                const users = (reactions[data.emoji] || []).filter(
-                  (id: string) => id !== data.userId
-                );
-                if (users.length === 0) {
-                  delete reactions[data.emoji];
-                } else {
-                  reactions[data.emoji] = users;
-                }
-                return { ...m, reactions };
-              }
-              return m;
-            });
-          setMessages(removeReaction);
-          setThreadReplies(removeReaction);
-          setActiveThread((prev) => (prev ? removeReaction([prev])[0] : null));
-        } else if (data.type === "contact_request") {
-          // Received a contact request
-          const request = data.request as ContactRequest;
-          setContactRequests((prev) => new Map(prev).set(request.fromUserId, request));
-        } else if (data.type === "contact_request_accepted") {
-          // Contact request was accepted
-          const contact = data.contact as Contact;
-          setContacts((prev) => [...prev, contact]);
-          setSentContactRequests((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(contact.userId);
-            return newSet;
-          });
-        } else if (data.type === "contact_request_declined") {
-          // Contact request was declined
-          const userId = data.userId as string;
-          setSentContactRequests((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(userId);
-            return newSet;
-          });
-        }
-      } catch (err) {
-        console.error("Failed to parse SSE event:", err);
+      // Clean up any existing connection
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5280";
+      const sseUrl = `${apiUrl}/api/conversations/${conversationId}/events`;
+
+      const eventSource = new EventSource(`${sseUrl}?access_token=${accessToken}`);
+      eventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        console.log("SSE connection opened for conversation", conversationId);
+        retryDelay = 1000; // Reset backoff on successful connection
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleSseEvent(data);
+        } catch (err) {
+          console.error("Failed to parse SSE event:", err);
+        }
+      };
+
+      eventSource.onerror = () => {
+        console.error("SSE connection error for conversation", conversationId);
+        eventSource.close();
+        eventSourceRef.current = null;
+
+        if (cancelled) return;
+
+        console.log(`SSE reconnecting in ${retryDelay / 1000}s...`);
+        retryTimeout = setTimeout(() => {
+          retryTimeout = null;
+          // Refetch data to fill any gaps from downtime, then reconnect
+          refetchData().finally(() => {
+            if (!cancelled) connect();
+          });
+        }, retryDelay);
+
+        retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
+      };
     };
 
-    eventSource.onerror = (err) => {
-      console.error("SSE connection error:", err);
-      eventSource.close();
-    };
+    connect();
 
     return () => {
-      console.log("Closing SSE connection for conversation", conversationId);
-      eventSource.close();
-      eventSourceRef.current = null;
+      cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (eventSourceRef.current) {
+        console.log("Closing SSE connection for conversation", conversationId);
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
     };
-  }, [conversationId, accessToken, user?.sub]);
+  }, [conversationId, accessToken, handleSseEvent, refetchData]);
 
   // Set up Intersection Observer to mark messages as read when they scroll into view
   useEffect(() => {
@@ -274,8 +332,6 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       observer.disconnect();
     };
   }, [messages, conversationId, user?.sub]);
-
-  const PAGE_SIZE = 50;
 
   const loadMessages = async () => {
     setIsLoading(true);
