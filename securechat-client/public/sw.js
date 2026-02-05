@@ -1,5 +1,4 @@
-// Push notification event handler
-// This code is appended to the next-pwa generated service worker
+// SecureChat Service Worker — Push Notifications
 
 self.addEventListener("push", function (event) {
   if (!event.data) return;

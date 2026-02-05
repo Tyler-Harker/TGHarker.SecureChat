@@ -14,25 +14,13 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
-/**
- * Waits for a service worker registration with a timeout.
- * navigator.serviceWorker.ready never rejects and hangs forever if no SW is registered.
- */
-function getServiceWorkerRegistration(
-  timeoutMs = 5000
-): Promise<ServiceWorkerRegistration | null> {
-  return Promise.race([
-    navigator.serviceWorker.ready,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-  ]);
-}
-
 export function usePushNotifications() {
   const [permissionState, setPermissionState] =
     useState<PushPermissionState>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
   const vapidKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -43,15 +31,19 @@ export function usePushNotifications() {
 
     setPermissionState(Notification.permission as PushPermissionState);
 
-    getServiceWorkerRegistration().then((registration) => {
-      if (!registration) {
-        console.warn("Service worker not available — push notifications won't work until the PWA service worker is registered.");
-        return;
-      }
-      registration.pushManager.getSubscription().then((subscription) => {
+    // Manually register the service worker (following Next.js PWA guide)
+    navigator.serviceWorker
+      .register("/sw.js", { scope: "/", updateViaCache: "none" })
+      .then((registration) => {
+        registrationRef.current = registration;
+        return registration.pushManager.getSubscription();
+      })
+      .then((subscription) => {
         setIsSubscribed(subscription !== null);
+      })
+      .catch((err) => {
+        console.error("Service worker registration failed:", err);
       });
-    });
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === "PUSH_SUBSCRIPTION_CHANGED") {
@@ -89,12 +81,7 @@ export function usePushNotifications() {
       if (permission !== "granted") return;
 
       const vapidKey = await getVapidKey();
-      const registration = await getServiceWorkerRegistration(10000);
-
-      if (!registration) {
-        setError("Service worker not available. Push notifications require the app to be installed as a PWA or running in production mode.");
-        return;
-      }
+      const registration = await navigator.serviceWorker.ready;
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -106,8 +93,9 @@ export function usePushNotifications() {
       await apiClient.subscribePush(subscription, deviceLabel);
 
       setIsSubscribed(true);
-    } catch (error) {
-      console.error("Failed to subscribe to push notifications:", error);
+    } catch (err) {
+      console.error("Failed to subscribe to push notifications:", err);
+      setError("Failed to enable push notifications. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -116,10 +104,7 @@ export function usePushNotifications() {
   const unsubscribe = useCallback(async () => {
     setIsLoading(true);
     try {
-      const registration = await getServiceWorkerRegistration();
-
-      if (!registration) return;
-
+      const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
@@ -128,8 +113,8 @@ export function usePushNotifications() {
       }
 
       setIsSubscribed(false);
-    } catch (error) {
-      console.error("Failed to unsubscribe from push notifications:", error);
+    } catch (err) {
+      console.error("Failed to unsubscribe from push notifications:", err);
     } finally {
       setIsLoading(false);
     }
