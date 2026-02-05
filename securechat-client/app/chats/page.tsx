@@ -104,6 +104,11 @@ function ChatsContent() {
     router.push("/chats", { scroll: false });
   };
 
+  const handleDeleteConversation = (conversationId: string) => {
+    setConversations((prev) => prev.filter((c) => c.conversationId !== conversationId));
+    router.push("/chats", { scroll: false });
+  };
+
   if (isLoading) {
     return <SplashScreen />;
   }
@@ -199,7 +204,7 @@ function ChatsContent() {
         {/* Main Content */}
         <div className="flex flex-1 flex-col">
           {selectedConversationId && activeTab === "chats" ? (
-            <MessageView conversationId={selectedConversationId} onBack={handleBack} />
+            <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} />
           ) : showInviteGenerator ? (
             <InviteGenerator onClose={() => setShowInviteGenerator(false)} />
           ) : (
@@ -225,7 +230,7 @@ function ChatsContent() {
       {/* Mobile Layout */}
       <div className="flex flex-1 flex-col md:hidden">
         {selectedConversationId ? (
-          <MessageView conversationId={selectedConversationId} onBack={handleBack} />
+          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} />
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">

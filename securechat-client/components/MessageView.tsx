@@ -8,9 +8,10 @@ import { base64ToUint8Array, uint8ArrayToBase64 } from "@/lib/crypto";
 interface MessageViewProps {
   conversationId: string;
   onBack?: () => void;
+  onDelete?: (conversationId: string) => void;
 }
 
-export default function MessageView({ conversationId, onBack }: MessageViewProps) {
+export default function MessageView({ conversationId, onBack, onDelete }: MessageViewProps) {
   const { user, accessToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -94,8 +95,9 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
         } else if (data.type === "conversation_deleted") {
           // Conversation was deleted by another participant
           console.log("Conversation deleted:", data.conversationId);
-          // Navigate back to conversation list
-          if (onBack) {
+          if (onDelete) {
+            onDelete(conversationId);
+          } else if (onBack) {
             onBack();
           }
         } else if (data.type === "read_receipt") {
@@ -254,8 +256,9 @@ export default function MessageView({ conversationId, onBack }: MessageViewProps
     setIsDeleting(true);
     try {
       await apiClient.deleteConversation(conversationId);
-      // Navigate back to conversation list
-      if (onBack) {
+      if (onDelete) {
+        onDelete(conversationId);
+      } else if (onBack) {
         onBack();
       }
     } catch (error) {
