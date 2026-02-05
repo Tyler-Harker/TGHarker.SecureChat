@@ -10,7 +10,9 @@ public record MessageDto(
     Guid? ParentMessageId,
     EncryptedMessageDto EncryptedContent,
     DateTime CreatedAt,
-    List<Guid> ReplyIds
+    List<Guid> ReplyIds,
+    Guid? AttachmentId = null,
+    Dictionary<string, List<string>>? Reactions = null
 );
 
 [GenerateSerializer]
@@ -24,5 +26,6 @@ public record EncryptedMessageDto(
 [GenerateSerializer]
 public record PostMessageDto(
     Guid? ParentMessageId,
-    EncryptedMessageDto EncryptedContent
+    EncryptedMessageDto EncryptedContent,
+    Guid? AttachmentId = null
 );

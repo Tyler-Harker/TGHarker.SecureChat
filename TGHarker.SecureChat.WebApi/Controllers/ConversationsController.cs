@@ -41,7 +41,9 @@ public class ConversationsController : ControllerBase
             AuthTag = Convert.ToBase64String(dto.EncryptedContent.AuthTag),
             Timestamp = dto.CreatedAt.ToString("o"), // ISO 8601 format
             KeyRotationVersion = dto.EncryptedContent.KeyVersion,
-            ParentMessageId = dto.ParentMessageId?.ToString()
+            ParentMessageId = dto.ParentMessageId?.ToString(),
+            AttachmentId = dto.AttachmentId?.ToString(),
+            Reactions = dto.Reactions
         };
     }
 
@@ -444,6 +446,53 @@ public class ConversationsController : ControllerBase
         {
             _logger.LogError(ex, "Failed to get read receipts for message {MessageId}", messageId);
             return StatusCode(500, new { error = "Failed to get read receipts" });
+        }
+    }
+
+    /// <summary>
+    /// Toggle an emoji reaction on a message.
+    /// </summary>
+    [HttpPost("{conversationId}/messages/{messageId}/reactions/{emoji}")]
+    public async Task<ActionResult> ToggleReaction(Guid conversationId, Guid messageId, string emoji)
+    {
+        try
+        {
+            var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
+            var wasAdded = await conversationGrain.ToggleReactionAsync(messageId, UserId, emoji);
+            return Ok(new { added = wasAdded, emoji, messageId = messageId.ToString() });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to toggle reaction on message {MessageId}", messageId);
+            return StatusCode(500, new { error = "Failed to toggle reaction" });
+        }
+    }
+
+    /// <summary>
+    /// Get all reactions for a message.
+    /// </summary>
+    [HttpGet("{conversationId}/messages/{messageId}/reactions")]
+    public async Task<ActionResult<Dictionary<string, List<string>>>> GetMessageReactions(
+        Guid conversationId, Guid messageId)
+    {
+        try
+        {
+            var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
+            var reactions = await conversationGrain.GetMessageReactionsAsync(messageId);
+            return Ok(reactions);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get reactions for message {MessageId}", messageId);
+            return StatusCode(500, new { error = "Failed to get reactions" });
         }
     }
 

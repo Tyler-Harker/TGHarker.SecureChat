@@ -308,7 +308,8 @@ public class ConversationGrain : Grain, IConversationGrain
             _state.State.ConversationId,
             senderUserId,
             message.ParentMessageId,
-            message.EncryptedContent
+            message.EncryptedContent,
+            message.AttachmentId
         );
 
         // Update conversation state
@@ -347,7 +348,8 @@ public class ConversationGrain : Grain, IConversationGrain
             message.ParentMessageId,
             message.EncryptedContent,
             DateTime.UtcNow,
-            new List<Guid>() // New message has no replies yet
+            new List<Guid>(), // New message has no replies yet
+            message.AttachmentId
         );
 
         // Publish message event to stream
@@ -366,7 +368,8 @@ public class ConversationGrain : Grain, IConversationGrain
                     authTag = Convert.ToBase64String(messageDto.EncryptedContent.AuthTag),
                     timestamp = messageDto.CreatedAt.ToString("o"),
                     keyRotationVersion = messageDto.EncryptedContent.KeyVersion,
-                    parentMessageId = messageDto.ParentMessageId?.ToString()
+                    parentMessageId = messageDto.ParentMessageId?.ToString(),
+                    attachmentId = messageDto.AttachmentId?.ToString()
                 }
             }, new System.Text.Json.JsonSerializerOptions
             {
@@ -447,14 +450,24 @@ public class ConversationGrain : Grain, IConversationGrain
             throw new InvalidOperationException("Conversation not created");
         }
 
-        // Get paginated message IDs
+        // Paginate from the end (newest first): skip=0 returns most recent messages
+        // Messages are returned in chronological order within the batch
+        var total = _state.State.MessageIds.Count;
+        var startIndex = Math.Max(0, total - skip - take);
+        var count = Math.Min(take, total - skip);
+        if (count <= 0)
+        {
+            return new List<MessageDto>();
+        }
+
         var messageIds = _state.State.MessageIds
-            .Skip(skip)
-            .Take(take)
+            .Skip(startIndex)
+            .Take(count)
             .ToList();
 
         // Retrieve messages from blob storage
-        return await _messageStorage.GetMessagesByConversationAsync(_state.State.ConversationId, messageIds);
+        var messages = await _messageStorage.GetMessagesByConversationAsync(_state.State.ConversationId, messageIds);
+        return AttachReactions(messages);
     }
 
     public async Task<List<MessageDto>> GetMessageRepliesAsync(Guid parentMessageId, int skip, int take)
@@ -479,7 +492,24 @@ public class ConversationGrain : Grain, IConversationGrain
             .ToList();
 
         // Retrieve replies from blob storage
-        return await _messageStorage.GetMessagesByConversationAsync(_state.State.ConversationId, paginatedReplyIds);
+        var messages = await _messageStorage.GetMessagesByConversationAsync(_state.State.ConversationId, paginatedReplyIds);
+        return AttachReactions(messages);
+    }
+
+    private List<MessageDto> AttachReactions(List<MessageDto> messages)
+    {
+        return messages.Select(m =>
+        {
+            if (_state.State.MessageReactions.TryGetValue(m.MessageId, out var reactions) && reactions.Count > 0)
+            {
+                var converted = reactions.ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => kvp.Value.ToList()
+                );
+                return m with { Reactions = converted };
+            }
+            return m;
+        }).ToList();
     }
 
     public Task<bool> IsParticipantAsync(string userId)
@@ -566,6 +596,88 @@ public class ConversationGrain : Grain, IConversationGrain
         }
 
         return Task.FromResult(new List<string>());
+    }
+
+    public async Task<bool> ToggleReactionAsync(Guid messageId, string userId, string emoji)
+    {
+        ValidateParticipantAccess();
+
+        var callingUserId = GetCallingUserId();
+        if (callingUserId != userId)
+        {
+            throw new UnauthorizedAccessException("Can only toggle reactions for yourself");
+        }
+
+        if (!_state.State.IsCreated)
+        {
+            throw new InvalidOperationException("Conversation not created");
+        }
+
+        if (!_state.State.MessageReactions.ContainsKey(messageId))
+        {
+            _state.State.MessageReactions[messageId] = new Dictionary<string, HashSet<string>>();
+        }
+
+        if (!_state.State.MessageReactions[messageId].ContainsKey(emoji))
+        {
+            _state.State.MessageReactions[messageId][emoji] = new HashSet<string>();
+        }
+
+        bool wasAdded;
+        if (_state.State.MessageReactions[messageId][emoji].Contains(userId))
+        {
+            _state.State.MessageReactions[messageId][emoji].Remove(userId);
+            wasAdded = false;
+
+            if (_state.State.MessageReactions[messageId][emoji].Count == 0)
+                _state.State.MessageReactions[messageId].Remove(emoji);
+            if (_state.State.MessageReactions[messageId].Count == 0)
+                _state.State.MessageReactions.Remove(messageId);
+        }
+        else
+        {
+            _state.State.MessageReactions[messageId][emoji].Add(userId);
+            wasAdded = true;
+        }
+
+        await _state.WriteStateAsync();
+
+        if (_eventStream != null)
+        {
+            var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = wasAdded ? "reaction_added" : "reaction_removed",
+                messageId = messageId.ToString(),
+                userId,
+                emoji
+            }, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+
+            await _eventStream.OnNextAsync(eventJson);
+        }
+
+        return wasAdded;
+    }
+
+    public Task<Dictionary<string, List<string>>> GetMessageReactionsAsync(Guid messageId)
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+        {
+            throw new InvalidOperationException("Conversation not created");
+        }
+
+        if (_state.State.MessageReactions.TryGetValue(messageId, out var reactions))
+        {
+            return Task.FromResult(reactions.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.ToList()));
+        }
+
+        return Task.FromResult(new Dictionary<string, List<string>>());
     }
 
     public async Task DeleteConversationAsync()

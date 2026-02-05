@@ -15,4 +15,6 @@ public record MessageApiResponse
     public string Timestamp { get; init; } = string.Empty;
     public int KeyRotationVersion { get; init; }
     public string? ParentMessageId { get; init; }
+    public string? AttachmentId { get; init; }
+    public Dictionary<string, List<string>>? Reactions { get; init; }
 }

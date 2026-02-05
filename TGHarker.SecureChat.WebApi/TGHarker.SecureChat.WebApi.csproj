@@ -13,6 +13,7 @@
     <PackageReference Include="Microsoft.Orleans.Clustering.AzureStorage" Version="10.0.0" />
     <PackageReference Include="Microsoft.Orleans.Streaming" Version="10.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.24.0" />
   </ItemGroup>
 
   <ItemGroup>

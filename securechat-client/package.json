@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "emoji-picker-react": "^4.17.4",
     "next": "16.1.6",
     "oidc-client-ts": "^3.4.1",
     "qrcode.react": "^4.2.0",

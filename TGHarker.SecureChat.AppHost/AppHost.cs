@@ -39,6 +39,7 @@ var frontend = builder.AddNpmApp("frontend", "../securechat-client", "dev")
 
 var api = builder.AddProject<TGHarker_SecureChat_WebApi>("webapi")
     .WithReference(tableStorage)
+    .WithReference(blobStorage)
     .WaitFor(silo)
     .WithExternalHttpEndpoints()
     .WithEnvironment("Cors__AllowedOrigins__0", frontend.GetEndpoint("http"))

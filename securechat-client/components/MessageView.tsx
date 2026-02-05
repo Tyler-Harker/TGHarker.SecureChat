@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiClient, type Message, type Conversation, type Contact, type ContactRequest } from "@/lib/api-client";
+import { apiClient, type Message, type Conversation, type Contact, type ContactRequest, type FetchedAttachment } from "@/lib/api-client";
 import { base64ToUint8Array, uint8ArrayToBase64 } from "@/lib/crypto";
+import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
 
 interface MessageViewProps {
   conversationId: string;
@@ -29,20 +30,38 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const [isDeleting, setIsDeleting] = useState(false);
   const [contactRequests, setContactRequests] = useState<Map<string, ContactRequest>>(new Map());
   const [sentContactRequests, setSentContactRequests] = useState<Set<string>>(new Set());
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const threadTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentCacheRef = useRef<Map<string, FetchedAttachment>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const isInitialLoadRef = useRef(true);
   const eventSourceRef = useRef<EventSource | null>(null);
   const messageElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const markedAsReadRef = useRef<Set<string>>(new Set()); // Track which messages we've already marked as read
   const activeThreadRef = useRef<Message | null>(null); // Ref to track active thread for SSE handler
 
   useEffect(() => {
+    isInitialLoadRef.current = true;
+    setHasMoreMessages(true);
     loadMessages();
   }, [conversationId]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (isInitialLoadRef.current) {
+      // On initial load, scroll instantly to bottom
+      messagesEndRef.current?.scrollIntoView();
+      isInitialLoadRef.current = false;
+    }
+  }, [isLoading]);
 
   useEffect(() => {
     if (activeThread) {
@@ -92,6 +111,8 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
             if (exists) {
               return prev;
             }
+            // Scroll to bottom for new messages
+            requestAnimationFrame(() => scrollToBottom());
             return [...prev, newMsg];
           });
 
@@ -133,6 +154,42 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
               return m;
             })
           );
+        } else if (data.type === "reaction_added") {
+          const addReaction = (msgs: Message[]) =>
+            msgs.map((m) => {
+              if (m.messageId === data.messageId) {
+                const reactions = { ...(m.reactions || {}) };
+                const users = reactions[data.emoji] || [];
+                if (!users.includes(data.userId)) {
+                  reactions[data.emoji] = [...users, data.userId];
+                }
+                return { ...m, reactions };
+              }
+              return m;
+            });
+          setMessages(addReaction);
+          setThreadReplies(addReaction);
+          setActiveThread((prev) => (prev ? addReaction([prev])[0] : null));
+        } else if (data.type === "reaction_removed") {
+          const removeReaction = (msgs: Message[]) =>
+            msgs.map((m) => {
+              if (m.messageId === data.messageId) {
+                const reactions = { ...(m.reactions || {}) };
+                const users = (reactions[data.emoji] || []).filter(
+                  (id: string) => id !== data.userId
+                );
+                if (users.length === 0) {
+                  delete reactions[data.emoji];
+                } else {
+                  reactions[data.emoji] = users;
+                }
+                return { ...m, reactions };
+              }
+              return m;
+            });
+          setMessages(removeReaction);
+          setThreadReplies(removeReaction);
+          setActiveThread((prev) => (prev ? removeReaction([prev])[0] : null));
         } else if (data.type === "contact_request") {
           // Received a contact request
           const request = data.request as ContactRequest;
@@ -214,21 +271,63 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     };
   }, [messages, conversationId, user?.sub]);
 
+  const PAGE_SIZE = 50;
+
   const loadMessages = async () => {
     setIsLoading(true);
     try {
       const [fetchedMessages, conversationData, contactsData] = await Promise.all([
-        apiClient.getMessages(conversationId),
+        apiClient.getMessages(conversationId, 0, PAGE_SIZE),
         apiClient.getConversation(conversationId),
         apiClient.getMyContacts(),
       ]);
       setMessages(fetchedMessages);
       setConversation(conversationData);
       setContacts(contactsData);
+      setHasMoreMessages(fetchedMessages.length >= PAGE_SIZE);
     } catch (error) {
       console.error("Failed to load messages:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadOlderMessages = async () => {
+    if (isLoadingMore || !hasMoreMessages) return;
+    setIsLoadingMore(true);
+
+    const container = messagesContainerRef.current;
+    const previousScrollHeight = container?.scrollHeight || 0;
+
+    try {
+      const currentCount = messages.length;
+      const olderMessages = await apiClient.getMessages(conversationId, currentCount, PAGE_SIZE);
+      if (olderMessages.length < PAGE_SIZE) {
+        setHasMoreMessages(false);
+      }
+      if (olderMessages.length > 0) {
+        setMessages((prev) => [...olderMessages, ...prev]);
+        // Preserve scroll position after prepending
+        requestAnimationFrame(() => {
+          if (container) {
+            const newScrollHeight = container.scrollHeight;
+            container.scrollTop = newScrollHeight - previousScrollHeight;
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load older messages:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    // Load more when scrolled near the top
+    if (container.scrollTop < 100 && hasMoreMessages && !isLoadingMore) {
+      loadOlderMessages();
     }
   };
 
@@ -290,17 +389,57 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate type
+    if (!file.type.startsWith("image/")) {
+      alert("Only image files are supported.");
+      return;
+    }
+
+    // Validate size (10 MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Image must be under 10 MB.");
+      return;
+    }
+
+    setPendingImage(file);
+    setPendingImagePreview(URL.createObjectURL(file));
+
+    // Reset file input so the same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const cancelImageSelection = () => {
+    if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview);
+    setPendingImage(null);
+    setPendingImagePreview(null);
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || isSending) return;
+    if ((!newMessage.trim() && !pendingImage) || isSending) return;
 
     setIsSending(true);
     try {
-      // TODO: Implement actual encryption here
-      // For now, we'll send unencrypted for demonstration
-      const messageText = newMessage.trim();
+      let attachmentId: string | undefined;
 
-      // Placeholder: encode as base64 (should be encrypted)
+      // Upload image first if present
+      if (pendingImage) {
+        setIsUploading(true);
+        try {
+          const attachment = await apiClient.uploadAttachment(conversationId, pendingImage);
+          attachmentId = attachment.attachmentId;
+        } finally {
+          setIsUploading(false);
+        }
+        cancelImageSelection();
+      }
+
+      // Placeholder encryption: encode as base64 (should be encrypted)
+      const messageText = newMessage.trim() || (attachmentId ? "" : "");
       const encoder = new TextEncoder();
       const messageBytes = encoder.encode(messageText);
       const ciphertext = uint8ArrayToBase64(messageBytes);
@@ -308,6 +447,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       const authTag = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(16)));
 
       const sentMessage = await apiClient.postMessage(conversationId, {
+        attachmentId,
         encryptedContent: {
           ciphertext,
           nonce,
@@ -318,6 +458,8 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
       setMessages([...messages, sentMessage]);
       setNewMessage("");
+      if (messageTextareaRef.current) messageTextareaRef.current.style.height = "auto";
+      requestAnimationFrame(() => scrollToBottom());
     } catch (error) {
       console.error("Failed to send message:", error);
       alert("Failed to send message");
@@ -352,6 +494,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
       setThreadReplies([...threadReplies, sentMessage]);
       setThreadMessage("");
+      if (threadTextareaRef.current) threadTextareaRef.current.style.height = "auto";
       scrollThreadToBottom();
     } catch (error) {
       console.error("Failed to send thread reply:", error);
@@ -412,6 +555,37 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     }
   };
 
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    const userId = user?.sub;
+    if (!userId) return;
+
+    const updateReactions = (msgs: Message[]) =>
+      msgs.map((m) => {
+        if (m.messageId !== messageId) return m;
+        const reactions = { ...(m.reactions || {}) };
+        const users = reactions[emoji] || [];
+        if (users.includes(userId)) {
+          const filtered = users.filter((id) => id !== userId);
+          if (filtered.length === 0) delete reactions[emoji];
+          else reactions[emoji] = filtered;
+        } else {
+          reactions[emoji] = [...users, userId];
+        }
+        return { ...m, reactions };
+      });
+
+    setMessages(updateReactions);
+    setThreadReplies(updateReactions);
+    setActiveThread((prev) => (prev ? updateReactions([prev])[0] : null));
+    setReactionPickerMessageId(null);
+
+    try {
+      await apiClient.toggleReaction(conversationId, messageId, emoji);
+    } catch (error) {
+      console.error("Failed to toggle reaction:", error);
+    }
+  };
+
   const getUnknownParticipants = (): string[] => {
     if (!conversation) return [];
     return conversation.participantUserIds.filter(
@@ -420,6 +594,67 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         !contacts.some((c) => c.userId === id) &&
         !sentContactRequests.has(id) &&
         !contactRequests.has(id)
+    );
+  };
+
+  const AttachmentImage = ({ message }: { message: Message }) => {
+    const [attachment, setAttachment] = useState<FetchedAttachment | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [fullscreen, setFullscreen] = useState(false);
+
+    useEffect(() => {
+      if (!message.attachmentId) return;
+
+      const cached = attachmentCacheRef.current.get(message.attachmentId);
+      if (cached) {
+        setAttachment(cached);
+        setLoading(false);
+        return;
+      }
+
+      apiClient
+        .fetchAttachment(conversationId, message.attachmentId)
+        .then((result) => {
+          attachmentCacheRef.current.set(message.attachmentId!, result);
+          setAttachment(result);
+        })
+        .catch((err) => console.error("Failed to fetch attachment:", err))
+        .finally(() => setLoading(false));
+    }, [message.attachmentId]);
+
+    if (!message.attachmentId) return null;
+
+    if (loading) {
+      return (
+        <div className="my-1 flex h-32 w-48 items-center justify-center rounded-lg bg-gray-200 dark:bg-gray-700">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-600 border-r-transparent"></div>
+        </div>
+      );
+    }
+
+    if (!attachment) return null;
+
+    return (
+      <>
+        <img
+          src={attachment.url}
+          alt={attachment.fileName}
+          className="my-1 max-h-64 cursor-pointer rounded-lg object-contain"
+          onClick={() => setFullscreen(true)}
+        />
+        {fullscreen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setFullscreen(false)}
+          >
+            <img
+              src={attachment.url}
+              alt={attachment.fileName}
+              className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+            />
+          </div>
+        )}
+      </>
     );
   };
 
@@ -585,13 +820,22 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         })()}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-3 dark:bg-gray-900 sm:p-4">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 overflow-y-auto bg-gray-50 p-3 dark:bg-gray-900 sm:p-4"
+      >
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-gray-500 dark:text-gray-400">
             No messages yet. Start the conversation!
           </div>
         ) : (
           <div className="space-y-4">
+            {isLoadingMore && (
+              <div className="flex justify-center py-2">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-600 border-r-transparent"></div>
+              </div>
+            )}
             {messages
               .filter((m) => !m.parentMessageId) // Only show top-level messages
               .map((message) => {
@@ -616,57 +860,107 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                         {getDisplayName(message.senderId)}
                       </span>
                     )}
-                    <div
-                      className={`max-w-[85%] rounded-lg px-3 py-2 sm:max-w-[70%] sm:px-4 ${
-                        isOwnMessage
-                          ? "bg-blue-600 text-white"
-                          : "bg-white text-gray-900 dark:bg-gray-800 dark:text-white"
-                      }`}
-                    >
-                      <div className="break-words">{decryptedText}</div>
+                    <div className="group max-w-[85%] sm:max-w-[70%]">
+                      <div
+                        className={`relative rounded-lg px-3 py-2 sm:px-4 ${
+                          isOwnMessage
+                            ? "bg-blue-600 text-white"
+                            : "bg-white text-gray-900 dark:bg-gray-800 dark:text-white"
+                        }`}
+                      >
+                        {message.attachmentId && <AttachmentImage message={message} />}
+                        {decryptedText && <div className="whitespace-pre-wrap break-words">{decryptedText}</div>}
 
-                      <div className="mt-1 flex items-center gap-3 text-xs">
-                        <span
-                          className={
-                            isOwnMessage
-                              ? "text-blue-100"
-                              : "text-gray-500 dark:text-gray-400"
-                          }
-                        >
-                          {new Date(message.timestamp).toLocaleTimeString()}
-                          {isOwnMessage && readCount > 0 && (
-                            <span className="ml-2">· Read by {readCount}</span>
-                          )}
-                        </span>
+                        <div className="mt-1 flex items-center gap-3 text-xs">
+                          <span
+                            className={
+                              isOwnMessage
+                                ? "text-blue-100"
+                                : "text-gray-500 dark:text-gray-400"
+                            }
+                          >
+                            {new Date(message.timestamp).toLocaleTimeString()}
+                            {isOwnMessage && readCount > 0 && (
+                              <span className="ml-2">· Read by {readCount}</span>
+                            )}
+                          </span>
 
+                          <button
+                            onClick={() => openThread(message)}
+                            className={`hover:underline ${
+                              isOwnMessage
+                                ? "text-blue-100"
+                                : "text-gray-500 dark:text-gray-400"
+                            }`}
+                            title="Reply in thread"
+                          >
+                            Reply
+                          </button>
+                        </div>
+
+                        {/* Thread indicator */}
+                        {replyCount > 0 && (
+                          <button
+                            onClick={() => openThread(message)}
+                            className={`mt-2 flex items-center gap-1 text-xs font-semibold hover:underline ${
+                              isOwnMessage
+                                ? "text-blue-100"
+                                : "text-blue-600 dark:text-blue-400"
+                            }`}
+                          >
+                            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            </svg>
+                            {replyCount} {replyCount === 1 ? "reply" : "replies"}
+                          </button>
+                        )}
+
+                        {/* Hover emoji button */}
                         <button
-                          onClick={() => openThread(message)}
-                          className={`hover:underline ${
-                            isOwnMessage
-                              ? "text-blue-100"
-                              : "text-gray-500 dark:text-gray-400"
-                          }`}
-                          title="Reply in thread"
+                          onClick={() => setReactionPickerMessageId(
+                            reactionPickerMessageId === message.messageId ? null : message.messageId
+                          )}
+                          className="absolute -bottom-3 right-2 z-10 rounded-full border border-gray-200 bg-white p-1 opacity-0 shadow-sm transition-opacity hover:bg-gray-100 group-hover:opacity-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+                          title="React"
                         >
-                          Reply
+                          <svg className="h-4 w-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
                         </button>
                       </div>
-
-                      {/* Thread indicator */}
-                      {replyCount > 0 && (
-                        <button
-                          onClick={() => openThread(message)}
-                          className={`mt-2 flex items-center gap-1 text-xs font-semibold hover:underline ${
-                            isOwnMessage
-                              ? "text-blue-100"
-                              : "text-blue-600 dark:text-blue-400"
-                          }`}
-                        >
-                          <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                          </svg>
-                          {replyCount} {replyCount === 1 ? "reply" : "replies"}
-                        </button>
+                      {/* Reaction pills - below bubble, overlapping with z-index */}
+                      {message.reactions && Object.keys(message.reactions).length > 0 && (
+                        <div className={`relative z-10 -mt-1 flex flex-wrap gap-1 px-1 ${isOwnMessage ? "justify-start" : "justify-end"}`}>
+                          {Object.entries(message.reactions).map(([emoji, userIds]) => (
+                            <button
+                              key={emoji}
+                              onClick={() => handleToggleReaction(message.messageId, emoji)}
+                              className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs shadow-sm ${
+                                userIds.includes(user?.sub || "")
+                                  ? "border-blue-400 bg-blue-100 dark:border-blue-500 dark:bg-blue-900/40"
+                                  : "border-gray-300 bg-gray-100 dark:border-gray-600 dark:bg-gray-700"
+                              }`}
+                              title={userIds.map(getDisplayName).join(", ")}
+                            >
+                              <span>{emoji}</span>
+                              <span className="text-gray-700 dark:text-gray-300">{userIds.length}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {/* Emoji picker */}
+                      {reactionPickerMessageId === message.messageId && (
+                        <div className="relative">
+                          <div className="absolute z-20" style={isOwnMessage ? { right: 0 } : { left: 0 }}>
+                            <EmojiPicker
+                              onEmojiClick={(emojiData: EmojiClickData) =>
+                                handleToggleReaction(message.messageId, emojiData.emoji)
+                              }
+                              width={300}
+                              height={350}
+                            />
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -679,22 +973,76 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
         {/* Message Input */}
         <div className="border-t border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:p-4">
-          <form onSubmit={handleSendMessage} className="flex gap-2">
+          {/* Image preview */}
+          {pendingImagePreview && (
+            <div className="mb-2 flex items-start gap-2">
+              <div className="relative">
+                <img
+                  src={pendingImagePreview}
+                  alt="Selected"
+                  className="h-20 w-20 rounded-lg object-cover"
+                />
+                <button
+                  onClick={cancelImageSelection}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-gray-800 p-0.5 text-white hover:bg-gray-700"
+                  title="Remove image"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {isUploading && (
+                <span className="text-sm text-gray-500 dark:text-gray-400">Uploading...</span>
+              )}
+            </div>
+          )}
+          <form onSubmit={handleSendMessage} className="flex items-end gap-2">
             <input
-              type="text"
+              type="file"
+              ref={fileInputRef}
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isSending}
+              className="mb-0.5 flex-shrink-0 rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              title="Attach image"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </button>
+            <textarea
+              ref={messageTextareaRef}
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Type a message..."
-              className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 sm:px-4"
+              onChange={(e) => {
+                setNewMessage(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 96) + "px";
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage(e);
+                }
+              }}
+              placeholder={pendingImage ? "Add a caption..." : "Type a message..."}
+              rows={1}
+              className="min-w-0 flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 sm:px-4"
+              style={{ maxHeight: "96px" }}
               disabled={isSending}
             />
             <button
               type="submit"
-              disabled={!newMessage.trim() || isSending}
-              className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
+              disabled={(!newMessage.trim() && !pendingImage) || isSending}
+              className="mb-0.5 flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
             >
               {isSending ? (
-                <span className="hidden sm:inline">Sending...</span>
+                <span className="hidden sm:inline">{isUploading ? "Uploading..." : "Sending..."}</span>
               ) : (
                 <span className="hidden sm:inline">Send</span>
               )}
@@ -742,16 +1090,65 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
             ) : (
               <div className="space-y-4">
                 {/* Original Message */}
-                <div className="rounded-lg border-2 border-blue-200 bg-white p-3 dark:border-blue-800 dark:bg-gray-800">
-                  <div className="mb-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
-                    Original Message · {getDisplayName(activeThread.senderId)}
+                <div className="group">
+                  <div className="relative rounded-lg border-2 border-blue-200 bg-white p-3 dark:border-blue-800 dark:bg-gray-800">
+                    <div className="mb-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
+                      Original Message · {getDisplayName(activeThread.senderId)}
+                    </div>
+                    {activeThread.attachmentId && <AttachmentImage message={activeThread} />}
+                    <div className="whitespace-pre-wrap break-words text-gray-900 dark:text-white">
+                      {decryptMessage(activeThread)}
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      {new Date(activeThread.timestamp).toLocaleTimeString()}
+                    </div>
+                    {/* Hover emoji button */}
+                    <button
+                      onClick={() => setReactionPickerMessageId(
+                        reactionPickerMessageId === activeThread.messageId ? null : activeThread.messageId
+                      )}
+                      className="absolute -bottom-3 right-2 z-10 rounded-full border border-gray-200 bg-white p-1 opacity-0 shadow-sm transition-opacity hover:bg-gray-100 group-hover:opacity-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+                      title="React"
+                    >
+                      <svg className="h-4 w-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </button>
                   </div>
-                  <div className="break-words text-gray-900 dark:text-white">
-                    {decryptMessage(activeThread)}
-                  </div>
-                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    {new Date(activeThread.timestamp).toLocaleTimeString()}
-                  </div>
+                  {/* Reaction pills - below bubble, overlapping with z-index */}
+                  {activeThread.reactions && Object.keys(activeThread.reactions).length > 0 && (
+                    <div className="relative z-10 -mt-1 flex flex-wrap gap-1 px-1">
+                      {Object.entries(activeThread.reactions).map(([emoji, userIds]) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleToggleReaction(activeThread.messageId, emoji)}
+                          className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs shadow-sm ${
+                            userIds.includes(user?.sub || "")
+                              ? "border-blue-400 bg-blue-100 dark:border-blue-500 dark:bg-blue-900/40"
+                              : "border-gray-300 bg-gray-100 dark:border-gray-600 dark:bg-gray-700"
+                          }`}
+                          title={userIds.map(getDisplayName).join(", ")}
+                        >
+                          <span>{emoji}</span>
+                          <span className="text-gray-700 dark:text-gray-300">{userIds.length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Emoji picker */}
+                  {reactionPickerMessageId === activeThread.messageId && (
+                    <div className="relative">
+                      <div className="absolute left-0 z-20">
+                        <EmojiPicker
+                          onEmojiClick={(emojiData: EmojiClickData) =>
+                            handleToggleReaction(activeThread.messageId, emojiData.emoji)
+                          }
+                          width={280}
+                          height={320}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Thread Replies */}
@@ -769,23 +1166,72 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                           {getDisplayName(reply.senderId)}
                         </span>
                       )}
-                      <div
-                        className={`max-w-[85%] rounded-lg px-3 py-2 ${
-                          isOwnReply
-                            ? "bg-blue-600 text-white"
-                            : "bg-white text-gray-900 dark:bg-gray-800 dark:text-white"
-                        }`}
-                      >
-                        <div className="break-words">{replyText}</div>
+                      <div className="group max-w-[85%]">
                         <div
-                          className={`mt-1 text-xs ${
+                          className={`relative rounded-lg px-3 py-2 ${
                             isOwnReply
-                              ? "text-blue-100"
-                              : "text-gray-500 dark:text-gray-400"
+                              ? "bg-blue-600 text-white"
+                              : "bg-white text-gray-900 dark:bg-gray-800 dark:text-white"
                           }`}
                         >
-                          {new Date(reply.timestamp).toLocaleTimeString()}
+                          {reply.attachmentId && <AttachmentImage message={reply} />}
+                          {replyText && <div className="whitespace-pre-wrap break-words">{replyText}</div>}
+                          <div
+                            className={`mt-1 text-xs ${
+                              isOwnReply
+                                ? "text-blue-100"
+                                : "text-gray-500 dark:text-gray-400"
+                            }`}
+                          >
+                            {new Date(reply.timestamp).toLocaleTimeString()}
+                          </div>
+                          {/* Hover emoji button */}
+                          <button
+                            onClick={() => setReactionPickerMessageId(
+                              reactionPickerMessageId === reply.messageId ? null : reply.messageId
+                            )}
+                            className="absolute -bottom-3 right-2 z-10 rounded-full border border-gray-200 bg-white p-1 opacity-0 shadow-sm transition-opacity hover:bg-gray-100 group-hover:opacity-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+                            title="React"
+                          >
+                            <svg className="h-4 w-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </button>
                         </div>
+                        {/* Reaction pills - below bubble, overlapping with z-index */}
+                        {reply.reactions && Object.keys(reply.reactions).length > 0 && (
+                          <div className={`relative z-10 -mt-1 flex flex-wrap gap-1 px-1 ${isOwnReply ? "justify-start" : "justify-end"}`}>
+                            {Object.entries(reply.reactions).map(([emoji, userIds]) => (
+                              <button
+                                key={emoji}
+                                onClick={() => handleToggleReaction(reply.messageId, emoji)}
+                                className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs shadow-sm ${
+                                  userIds.includes(user?.sub || "")
+                                    ? "border-blue-400 bg-blue-100 dark:border-blue-500 dark:bg-blue-900/40"
+                                    : "border-gray-300 bg-gray-100 dark:border-gray-600 dark:bg-gray-700"
+                                }`}
+                                title={userIds.map(getDisplayName).join(", ")}
+                              >
+                                <span>{emoji}</span>
+                                <span className="text-gray-700 dark:text-gray-300">{userIds.length}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {/* Emoji picker */}
+                        {reactionPickerMessageId === reply.messageId && (
+                          <div className="relative">
+                            <div className="absolute z-20" style={isOwnReply ? { right: 0 } : { left: 0 }}>
+                              <EmojiPicker
+                                onEmojiClick={(emojiData: EmojiClickData) =>
+                                  handleToggleReaction(reply.messageId, emojiData.emoji)
+                                }
+                                width={280}
+                                height={320}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -797,25 +1243,45 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
           {/* Thread Input */}
           <div className="border-t border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:p-4">
-            <form onSubmit={handleSendThreadMessage} className="flex gap-2">
-              <input
-                type="text"
+            <form onSubmit={handleSendThreadMessage} className="flex items-end gap-2">
+              <textarea
+                ref={threadTextareaRef}
                 value={threadMessage}
-                onChange={(e) => setThreadMessage(e.target.value)}
+                onChange={(e) => {
+                  setThreadMessage(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 96) + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendThreadMessage(e);
+                  }
+                }}
                 placeholder="Reply in thread..."
-                className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                rows={1}
+                className="min-w-0 flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                style={{ maxHeight: "96px" }}
                 disabled={isSending}
               />
               <button
                 type="submit"
                 disabled={!threadMessage.trim() || isSending}
-                className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mb-0.5 flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Send
               </button>
             </form>
           </div>
         </div>
+      )}
+
+      {/* Click-away overlay for emoji picker */}
+      {reactionPickerMessageId && (
+        <div
+          className="fixed inset-0 z-10"
+          onClick={() => setReactionPickerMessageId(null)}
+        />
       )}
 
       {/* Delete Confirmation Dialog */}

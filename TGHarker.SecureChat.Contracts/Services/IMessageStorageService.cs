@@ -11,7 +11,7 @@ public interface IMessageStorageService
     /// <summary>
     /// Stores an encrypted message in blob storage.
     /// </summary>
-    Task<Guid> StoreMessageAsync(Guid conversationId, string senderUserId, Guid? parentMessageId, EncryptedMessageDto encryptedContent);
+    Task<Guid> StoreMessageAsync(Guid conversationId, string senderUserId, Guid? parentMessageId, EncryptedMessageDto encryptedContent, Guid? attachmentId = null);
 
     /// <summary>
     /// Retrieves multiple messages by their IDs for a specific conversation.

@@ -89,6 +89,20 @@ public interface IConversationGrain : IGrainWithGuidKey
     Task<List<string>> GetMessageReadReceiptsAsync(Guid messageId);
 
     /// <summary>
+    /// Toggles an emoji reaction on a message.
+    /// Returns true if reaction was added, false if removed.
+    /// Requires: Caller must be a participant and must match userId.
+    /// </summary>
+    Task<bool> ToggleReactionAsync(Guid messageId, string userId, string emoji);
+
+    /// <summary>
+    /// Gets all reactions for a specific message.
+    /// Returns emoji -> list of userIds.
+    /// Requires: Caller must be a participant.
+    /// </summary>
+    Task<Dictionary<string, List<string>>> GetMessageReactionsAsync(Guid messageId);
+
+    /// <summary>
     /// Deletes the conversation and all its messages.
     /// Requires: Caller must be a participant.
     /// This will delete the conversation for all participants.

@@ -38,8 +38,10 @@ export interface Message {
   timestamp: string;
   keyRotationVersion: number;
   parentMessageId?: string;
+  attachmentId?: string;
   readBy?: string[]; // User IDs who have read this message (client-side tracking)
   replyCount?: number; // Number of replies (client-side tracking)
+  reactions?: Record<string, string[]>; // emoji -> userIds (client-side tracking)
 }
 
 export interface CreateConversationRequest {
@@ -49,12 +51,32 @@ export interface CreateConversationRequest {
 
 export interface PostMessageRequest {
   parentMessageId?: string;
+  attachmentId?: string;
   encryptedContent: {
     ciphertext: string; // Base64
     nonce: string; // Base64
     authTag: string; // Base64
     keyVersion: number;
   };
+}
+
+export interface AttachmentMetadata {
+  attachmentId: string;
+  conversationId: string;
+  senderUserId: string;
+  fileName: string;
+  contentType: string;
+  fileSizeBytes: number;
+  nonce: string;
+  authTag: string;
+  keyVersion: number;
+  uploadedAt: string;
+}
+
+export interface FetchedAttachment {
+  url: string;
+  contentType: string;
+  fileName: string;
 }
 
 export interface Contact {
@@ -405,6 +427,29 @@ export class ApiClient {
       `/api/conversations/${conversationId}/messages/${messageId}/read`
     );
   }
+
+  // ===== Reaction Endpoints =====
+
+  async toggleReaction(
+    conversationId: string,
+    messageId: string,
+    emoji: string
+  ): Promise<{ added: boolean; emoji: string; messageId: string }> {
+    return this.fetch<{ added: boolean; emoji: string; messageId: string }>(
+      `/api/conversations/${conversationId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+      { method: "POST" }
+    );
+  }
+
+  async getMessageReactions(
+    conversationId: string,
+    messageId: string
+  ): Promise<Record<string, string[]>> {
+    return this.fetch<Record<string, string[]>>(
+      `/api/conversations/${conversationId}/messages/${messageId}/reactions`
+    );
+  }
+
   // ===== Push Notification Endpoints =====
 
   async getVapidPublicKey(): Promise<{ publicKey: string }> {
@@ -439,6 +484,88 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ endpoint }),
     });
+  }
+
+  // ===== Attachment Endpoints =====
+
+  async uploadAttachment(
+    conversationId: string,
+    file: File
+  ): Promise<AttachmentMetadata> {
+    // Placeholder encryption: use raw bytes with random nonce/authTag
+    // When real E2EE is implemented, this will encrypt the file bytes
+    const arrayBuffer = await file.arrayBuffer();
+    const encryptedBytes = new Uint8Array(arrayBuffer);
+
+    // Generate placeholder nonce and authTag (same pattern as text messages)
+    const nonce = new Uint8Array(12);
+    crypto.getRandomValues(nonce);
+    const authTag = new Uint8Array(16);
+    crypto.getRandomValues(authTag);
+
+    const nonceB64 = btoa(String.fromCharCode(...nonce));
+    const authTagB64 = btoa(String.fromCharCode(...authTag));
+
+    const formData = new FormData();
+    formData.append("file", new Blob([encryptedBytes]), file.name);
+    formData.append("nonce", nonceB64);
+    formData.append("authTag", authTagB64);
+    formData.append("keyVersion", "1");
+    formData.append("fileName", file.name);
+    formData.append("contentType", file.type);
+
+    const headers: Record<string, string> = {};
+    if (this.accessToken) {
+      headers["Authorization"] = `Bearer ${this.accessToken}`;
+    }
+    // Do NOT set Content-Type — browser sets multipart boundary automatically
+
+    const response = await fetch(
+      `${this.baseUrl}/api/conversations/${conversationId}/attachments`,
+      { method: "POST", headers, body: formData }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }));
+      throw new Error(error.error || `Upload failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async fetchAttachment(
+    conversationId: string,
+    attachmentId: string
+  ): Promise<FetchedAttachment> {
+    const headers: Record<string, string> = {};
+    if (this.accessToken) {
+      headers["Authorization"] = `Bearer ${this.accessToken}`;
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/api/conversations/${conversationId}/attachments/${attachmentId}`,
+      { headers }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch attachment: ${response.status}`);
+    }
+
+    // Read encryption metadata from headers
+    const originalContentType =
+      response.headers.get("X-Original-Content-Type") || "image/jpeg";
+    const originalFileName =
+      response.headers.get("X-Original-FileName") || "attachment";
+
+    // Placeholder decryption: use bytes directly
+    // When real E2EE is implemented, this will decrypt the bytes
+    const encryptedBlob = await response.blob();
+    const decryptedBlob = new Blob([encryptedBlob], { type: originalContentType });
+    const url = URL.createObjectURL(decryptedBlob);
+
+    return { url, contentType: originalContentType, fileName: originalFileName };
   }
 }
 

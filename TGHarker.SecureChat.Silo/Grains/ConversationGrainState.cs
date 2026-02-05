@@ -56,4 +56,11 @@ public class ConversationGrainState
 
     [Id(10)]
     public bool IsCreated { get; set; }
+
+    /// <summary>
+    /// Maps message IDs to emoji reactions.
+    /// Structure: [messageId][emoji] = set of userIds who reacted with that emoji.
+    /// </summary>
+    [Id(12)]
+    public Dictionary<Guid, Dictionary<string, HashSet<string>>> MessageReactions { get; set; } = new();
 }

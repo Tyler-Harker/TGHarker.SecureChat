@@ -17,7 +17,7 @@ public class MessageStorageService : IMessageStorageService
         _logger = logger;
     }
 
-    public async Task<Guid> StoreMessageAsync(Guid conversationId, string senderUserId, Guid? parentMessageId, EncryptedMessageDto encryptedContent)
+    public async Task<Guid> StoreMessageAsync(Guid conversationId, string senderUserId, Guid? parentMessageId, EncryptedMessageDto encryptedContent, Guid? attachmentId = null)
     {
         try
         {
@@ -36,7 +36,8 @@ public class MessageStorageService : IMessageStorageService
                 ParentMessageId: parentMessageId,
                 EncryptedContent: encryptedContent,
                 CreatedAt: DateTime.UtcNow,
-                ReplyIds: new List<Guid>()
+                ReplyIds: new List<Guid>(),
+                AttachmentId: attachmentId
             );
 
             var json = JsonSerializer.Serialize(message);
