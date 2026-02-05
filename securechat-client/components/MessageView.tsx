@@ -9,9 +9,11 @@ interface MessageViewProps {
   conversationId: string;
   onBack?: () => void;
   onDelete?: (conversationId: string) => void;
+  onConversationCreated?: (conversation: Conversation) => void;
+  onUnreadActivity?: () => void;
 }
 
-export default function MessageView({ conversationId, onBack, onDelete }: MessageViewProps) {
+export default function MessageView({ conversationId, onBack, onDelete, onConversationCreated, onUnreadActivity }: MessageViewProps) {
   const { user, accessToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -92,13 +94,31 @@ export default function MessageView({ conversationId, onBack, onDelete }: Messag
             }
             return [...prev, newMsg];
           });
+
+          // Notify parent about new incoming message from another user
+          if (newMsg.senderId !== user?.sub && onUnreadActivity) {
+            onUnreadActivity();
+          }
+        } else if (data.type === "new_message_indicator") {
+          // A message was sent in a different conversation — notify parent for badge
+          if (onUnreadActivity) {
+            onUnreadActivity();
+          }
         } else if (data.type === "conversation_deleted") {
-          // Conversation was deleted by another participant
-          console.log("Conversation deleted:", data.conversationId);
+          // A conversation was deleted — may or may not be the one we're viewing
+          const deletedId = data.conversationId as string;
+          console.log("Conversation deleted:", deletedId);
           if (onDelete) {
-            onDelete(conversationId);
-          } else if (onBack) {
+            onDelete(deletedId);
+          }
+          // If the deleted conversation is the one we're viewing, navigate away
+          if (deletedId === conversationId && onBack && !onDelete) {
             onBack();
+          }
+        } else if (data.type === "conversation_created") {
+          const newConversation = data.conversation as Conversation;
+          if (onConversationCreated) {
+            onConversationCreated(newConversation);
           }
         } else if (data.type === "read_receipt") {
           // Update read receipts for the message

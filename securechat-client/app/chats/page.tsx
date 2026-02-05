@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type Conversation, type Contact } from "@/lib/api-client";
@@ -24,6 +24,8 @@ function ChatsContent() {
   const [activeTab, setActiveTab] = useState<TabView>("chats");
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showInviteGenerator, setShowInviteGenerator] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const activeTabRef = useRef<TabView>("chats");
 
   useEffect(() => {
     if (accessToken) {
@@ -104,9 +106,34 @@ function ChatsContent() {
     router.push("/chats", { scroll: false });
   };
 
-  const handleDeleteConversation = (conversationId: string) => {
-    setConversations((prev) => prev.filter((c) => c.conversationId !== conversationId));
-    router.push("/chats", { scroll: false });
+  const handleDeleteConversation = (deletedConversationId: string) => {
+    setConversations((prev) => prev.filter((c) => c.conversationId !== deletedConversationId));
+    // Only navigate away if the deleted conversation is the one currently selected
+    if (selectedConversationId === deletedConversationId) {
+      router.push("/chats", { scroll: false });
+    }
+  };
+
+  const handleConversationCreated = (conversation: Conversation) => {
+    setConversations((prev) => {
+      // Avoid duplicates (e.g. the creator already has it from the API response)
+      if (prev.some((c) => c.conversationId === conversation.conversationId)) return prev;
+      return [conversation, ...prev];
+    });
+  };
+
+  const handleUnreadActivity = useCallback(() => {
+    if (activeTabRef.current !== "chats") {
+      setUnreadChatCount((prev) => prev + 1);
+    }
+  }, []);
+
+  const handleSetActiveTab = (tab: TabView) => {
+    setActiveTab(tab);
+    activeTabRef.current = tab;
+    if (tab === "chats") {
+      setUnreadChatCount(0);
+    }
   };
 
   if (isLoading) {
@@ -120,17 +147,22 @@ function ChatsContent() {
         <div className="flex items-center justify-between px-6">
           <div className="flex gap-1">
             <button
-              onClick={() => setActiveTab("chats")}
-              className={`px-4 py-3 font-medium transition-colors ${
+              onClick={() => handleSetActiveTab("chats")}
+              className={`relative px-4 py-3 font-medium transition-colors ${
                 activeTab === "chats"
                   ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400"
                   : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
               }`}
             >
               Chats
+              {unreadChatCount > 0 && activeTab !== "chats" && (
+                <span className="absolute -right-1 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
+                  {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                </span>
+              )}
             </button>
             <button
-              onClick={() => setActiveTab("contacts")}
+              onClick={() => handleSetActiveTab("contacts")}
               className={`px-4 py-3 font-medium transition-colors ${
                 activeTab === "contacts"
                   ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400"
@@ -203,26 +235,32 @@ function ChatsContent() {
 
         {/* Main Content */}
         <div className="flex flex-1 flex-col">
-          {selectedConversationId && activeTab === "chats" ? (
-            <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} />
-          ) : showInviteGenerator ? (
-            <InviteGenerator onClose={() => setShowInviteGenerator(false)} />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center">
-                <svg className="mx-auto mb-4 h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
-                  {activeTab === "chats" ? "Select a conversation" : "Your Contacts"}
-                </h2>
-                <p className="text-gray-500 dark:text-gray-400">
-                  {activeTab === "chats"
-                    ? "Choose a conversation or start a new one"
-                    : "Select a contact to start chatting"}
-                </p>
-              </div>
+          {/* Keep MessageView mounted (hidden) when on contacts tab so SSE stays alive for unread badge */}
+          {selectedConversationId && (
+            <div className={activeTab === "chats" ? "flex h-full flex-col" : "hidden"}>
+              <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} />
             </div>
+          )}
+          {(activeTab !== "chats" || !selectedConversationId) && (
+            showInviteGenerator ? (
+              <InviteGenerator onClose={() => setShowInviteGenerator(false)} />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <div className="text-center">
+                  <svg className="mx-auto mb-4 h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                  <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
+                    {activeTab === "chats" ? "Select a conversation" : "Your Contacts"}
+                  </h2>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    {activeTab === "chats"
+                      ? "Choose a conversation or start a new one"
+                      : "Select a contact to start chatting"}
+                  </p>
+                </div>
+              </div>
+            )
           )}
         </div>
       </div>
@@ -230,7 +268,7 @@ function ChatsContent() {
       {/* Mobile Layout */}
       <div className="flex flex-1 flex-col md:hidden">
         {selectedConversationId ? (
-          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} />
+          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} />
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">

@@ -109,6 +109,49 @@ public class ConversationGrain : Grain, IConversationGrain
 
         _logger.LogInformation("Created conversation {ConversationId} with {ParticipantCount} participants",
             conversationId, participantUserIds.Count);
+
+        // Broadcast conversation_created event to all participants' existing conversation streams
+        var conversationDetails = new ConversationDto(
+            ConversationId: conversationId,
+            ParticipantUserIds: participantUserIds,
+            CreatedByUserId: createdByUserId,
+            CreatedAt: _state.State.CreatedAt,
+            LastActivityAt: _state.State.LastActivityAt,
+            MessageCount: 0,
+            CurrentKeyVersion: _state.State.CurrentKeyVersion
+        );
+
+        var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
+        var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "conversation_created",
+            conversation = conversationDetails
+        }, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
+
+        foreach (var userId in participantUserIds)
+        {
+            try
+            {
+                var userGrain = GrainFactory.GetGrain<IUserGrain>(userId);
+                var userConversationIds = await userGrain.GetConversationIdsAsync();
+
+                foreach (var userConvId in userConversationIds)
+                {
+                    // Skip the newly created conversation — no one is subscribed to it yet
+                    if (userConvId == conversationId) continue;
+
+                    var stream = streamProvider.GetStream<string>("ConversationEvents", userConvId);
+                    await stream.OnNextAsync(eventJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish conversation_created event to user {UserId}", userId);
+            }
+        }
     }
 
     public Task<ConversationDto> GetDetailsAsync()
@@ -333,6 +376,41 @@ public class ConversationGrain : Grain, IConversationGrain
             await _eventStream.OnNextAsync(eventJson);
         }
 
+        // Broadcast lightweight new_message_indicator to other conversation streams
+        // so participants watching a different conversation see the unread badge
+        var indicatorJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "new_message_indicator",
+            conversationId = _state.State.ConversationId.ToString()
+        }, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
+
+        var indicatorStreamProvider = this.GetStreamProvider("ConversationStreamProvider");
+        foreach (var participantId in _state.State.ParticipantUserIds)
+        {
+            if (participantId == senderUserId) continue;
+
+            try
+            {
+                var userGrain = GrainFactory.GetGrain<IUserGrain>(participantId);
+                var userConvIds = await userGrain.GetConversationIdsAsync();
+
+                foreach (var convId in userConvIds)
+                {
+                    // Skip the current conversation — it already got the full message event
+                    if (convId == _state.State.ConversationId) continue;
+                    var stream = indicatorStreamProvider.GetStream<string>("ConversationEvents", convId);
+                    await stream.OnNextAsync(indicatorJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to broadcast new_message_indicator to user {UserId}", participantId);
+            }
+        }
+
         // Send push notifications to all participants except the sender
         foreach (var participantId in _state.State.ParticipantUserIds)
         {
@@ -503,19 +581,35 @@ public class ConversationGrain : Grain, IConversationGrain
         var participants = _state.State.ParticipantUserIds.ToList();
         var conversationId = this.GetPrimaryKey();
 
-        // Publish deletion event to stream before clearing state
-        if (_eventStream != null)
+        var eventJson = System.Text.Json.JsonSerializer.Serialize(new
         {
-            var eventJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                type = "conversation_deleted",
-                conversationId = conversationId.ToString()
-            }, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-            });
+            type = "conversation_deleted",
+            conversationId = conversationId.ToString()
+        }, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
 
-            await _eventStream.OnNextAsync(eventJson);
+        // Broadcast deletion event to ALL conversation streams for each participant
+        // so they receive it regardless of which conversation they're currently watching
+        var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
+        foreach (var userId in participants)
+        {
+            try
+            {
+                var userGrain = GrainFactory.GetGrain<IUserGrain>(userId);
+                var userConversationIds = await userGrain.GetConversationIdsAsync();
+
+                foreach (var userConvId in userConversationIds)
+                {
+                    var stream = streamProvider.GetStream<string>("ConversationEvents", userConvId);
+                    await stream.OnNextAsync(eventJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish conversation_deleted event to user {UserId}", userId);
+            }
         }
 
         // Clear the conversation state
