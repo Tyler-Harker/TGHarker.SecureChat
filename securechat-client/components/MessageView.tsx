@@ -61,6 +61,10 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       messagesEndRef.current?.scrollIntoView();
       isInitialLoadRef.current = false;
     }
+    // Focus the message input when conversation finishes loading
+    if (!isLoading && !activeThread) {
+      messageTextareaRef.current?.focus();
+    }
   }, [isLoading]);
 
   useEffect(() => {
@@ -369,6 +373,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     activeThreadRef.current = null;
     setThreadReplies([]);
     setThreadMessage("");
+    requestAnimationFrame(() => messageTextareaRef.current?.focus());
   };
 
   const handleDeleteConversation = async () => {
@@ -458,7 +463,10 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
       setMessages([...messages, sentMessage]);
       setNewMessage("");
-      if (messageTextareaRef.current) messageTextareaRef.current.style.height = "auto";
+      if (messageTextareaRef.current) {
+        messageTextareaRef.current.style.height = "auto";
+        messageTextareaRef.current.focus();
+      }
       requestAnimationFrame(() => scrollToBottom());
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -578,6 +586,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     setThreadReplies(updateReactions);
     setActiveThread((prev) => (prev ? updateReactions([prev])[0] : null));
     setReactionPickerMessageId(null);
+    messageTextareaRef.current?.focus();
 
     try {
       await apiClient.toggleReaction(conversationId, messageId, emoji);
@@ -1280,7 +1289,10 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       {reactionPickerMessageId && (
         <div
           className="fixed inset-0 z-10"
-          onClick={() => setReactionPickerMessageId(null)}
+          onClick={() => {
+            setReactionPickerMessageId(null);
+            messageTextareaRef.current?.focus();
+          }}
         />
       )}
 
