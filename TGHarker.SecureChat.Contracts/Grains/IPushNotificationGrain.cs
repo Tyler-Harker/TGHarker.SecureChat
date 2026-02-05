@@ -12,4 +12,6 @@ public interface IPushNotificationGrain : IGrainWithStringKey
     Task UnregisterSubscriptionAsync(string endpoint);
     Task<List<PushSubscriptionDto>> GetSubscriptionsAsync();
     Task SendNotificationAsync(PushNotificationPayload payload);
+    Task MarkConnectionActiveAsync();
+    Task MarkConnectionInactiveAsync();
 }

@@ -297,6 +297,10 @@ public class ConversationsController : ControllerBase
             Response.Headers.Append("Cache-Control", "no-cache");
             Response.Headers.Append("Connection", "keep-alive");
 
+            // Mark user as active so push notifications are suppressed while connected
+            var pushGrain = _client.GetGrain<IPushNotificationGrain>(currentUserId);
+            await pushGrain.MarkConnectionActiveAsync();
+
             // Send initial connection message
             await Response.WriteAsync("data: {\"type\":\"connected\"}\n\n", cancellationToken);
             await Response.Body.FlushAsync(cancellationToken);
@@ -337,6 +341,9 @@ public class ConversationsController : ControllerBase
                 // Unsubscribe from the stream
                 await subscriptionHandle.UnsubscribeAsync();
                 channel.Writer.Complete();
+
+                // Mark user as inactive so push notifications resume
+                await pushGrain.MarkConnectionInactiveAsync();
             }
         }
         catch (Exception ex)

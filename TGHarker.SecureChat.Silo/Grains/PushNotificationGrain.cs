@@ -12,6 +12,7 @@ public class PushNotificationGrain : Grain, IPushNotificationGrain
     private readonly IPersistentState<PushNotificationGrainState> _state;
     private readonly WebPushClient _pushClient;
     private readonly ILogger<PushNotificationGrain> _logger;
+    private int _activeConnections;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -57,8 +58,28 @@ public class PushNotificationGrain : Grain, IPushNotificationGrain
         return Task.FromResult(_state.State.Subscriptions.ToList());
     }
 
+    public Task MarkConnectionActiveAsync()
+    {
+        _activeConnections++;
+        _logger.LogDebug("User {UserId} active connections: {Count}", this.GetPrimaryKeyString(), _activeConnections);
+        return Task.CompletedTask;
+    }
+
+    public Task MarkConnectionInactiveAsync()
+    {
+        _activeConnections = Math.Max(0, _activeConnections - 1);
+        _logger.LogDebug("User {UserId} active connections: {Count}", this.GetPrimaryKeyString(), _activeConnections);
+        return Task.CompletedTask;
+    }
+
     public async Task SendNotificationAsync(PushNotificationPayload payload)
     {
+        if (_activeConnections > 0)
+        {
+            _logger.LogDebug("Skipping push for user {UserId} — {Count} active connection(s)", this.GetPrimaryKeyString(), _activeConnections);
+            return;
+        }
+
         if (_state.State.Subscriptions.Count == 0) return;
 
         var payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
