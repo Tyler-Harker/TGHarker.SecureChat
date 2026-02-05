@@ -40,7 +40,7 @@ export default function LandingPage() {
 
           {/* CTA Button */}
           <button
-            onClick={login}
+            onClick={() => login()}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all hover:bg-blue-700 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-300"
           >
             <svg

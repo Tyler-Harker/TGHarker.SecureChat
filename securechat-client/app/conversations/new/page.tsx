@@ -129,7 +129,7 @@ export default function NewConversationPage() {
               Please sign in to create a new conversation.
             </p>
             <button
-              onClick={login}
+              onClick={() => login()}
               className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
             >
               Sign In

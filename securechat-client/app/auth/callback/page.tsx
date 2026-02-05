@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "react-oidc-context";
+import { getAndClearReturnUrl } from "@/contexts/AuthContext";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -13,7 +14,8 @@ export default function AuthCallbackPage() {
     // We just need to redirect once authentication is complete
     if (!auth.isLoading) {
       if (auth.isAuthenticated) {
-        router.push("/");
+        const returnUrl = getAndClearReturnUrl();
+        router.push(returnUrl || "/");
       } else if (auth.error) {
         console.error("Authentication error:", auth.error);
         router.push("/?error=auth_failed");

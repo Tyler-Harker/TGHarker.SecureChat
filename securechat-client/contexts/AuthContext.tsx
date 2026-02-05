@@ -47,9 +47,31 @@ function AuthSyncWrapper({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const RETURN_URL_KEY = "auth_return_url";
+
+export function storeReturnUrl(url: string) {
+  if (typeof window !== "undefined") {
+    sessionStorage.setItem(RETURN_URL_KEY, url);
+  }
+}
+
+export function getAndClearReturnUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const url = sessionStorage.getItem(RETURN_URL_KEY);
+  sessionStorage.removeItem(RETURN_URL_KEY);
+  return url;
+}
+
 // Custom hook that wraps react-oidc-context's useAuth with our interface
 export function useAuth() {
   const auth = useOidcAuth();
+
+  const login = (returnTo?: string) => {
+    if (returnTo) {
+      storeReturnUrl(returnTo);
+    }
+    auth.signinRedirect();
+  };
 
   return {
     user: auth.user?.profile
@@ -62,7 +84,7 @@ export function useAuth() {
     accessToken: auth.user?.access_token ?? null,
     isLoading: auth.isLoading,
     isAuthenticated: auth.isAuthenticated,
-    login: () => auth.signinRedirect(),
+    login,
     logout: () => auth.signoutRedirect(),
   };
 }

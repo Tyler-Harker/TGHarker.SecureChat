@@ -8,7 +8,6 @@ import { apiClient, type ContactInviteInfo, type Contact } from "@/lib/api-clien
 type InviteState =
   | { status: "loading" }
   | { status: "invalid"; message: string }
-  | { status: "login_required"; invite: ContactInviteInfo }
   | { status: "ready"; invite: ContactInviteInfo }
   | { status: "accepting" }
   | { status: "success"; contact: Contact }
@@ -30,6 +29,18 @@ function InviteAcceptContent() {
       return;
     }
 
+    // Wait for auth to finish loading
+    if (authLoading) {
+      return;
+    }
+
+    // Require authentication - redirect to login if not authenticated
+    if (!isAuthenticated) {
+      const currentUrl = `/contacts/invite?id=${inviteId}&secret=${encodeURIComponent(inviteSecret)}&code=${encodeURIComponent(inviteSecretCode)}`;
+      login(currentUrl);
+      return;
+    }
+
     const loadInvite = async () => {
       try {
         const invite = await apiClient.getInvite(inviteId);
@@ -46,15 +57,11 @@ function InviteAcceptContent() {
           return;
         }
 
-        // Check if user is authenticated
-        if (!authLoading) {
-          if (!isAuthenticated) {
-            setState({ status: "login_required", invite });
-          } else if (user?.sub === invite.creatorUserId) {
-            setState({ status: "invalid", message: "You cannot accept your own invite" });
-          } else {
-            setState({ status: "ready", invite });
-          }
+        // Check if user is trying to accept their own invite
+        if (user?.sub === invite.creatorUserId) {
+          setState({ status: "invalid", message: "You cannot accept your own invite" });
+        } else {
+          setState({ status: "ready", invite });
         }
       } catch {
         setState({ status: "invalid", message: "Invite not found" });
@@ -62,7 +69,7 @@ function InviteAcceptContent() {
     };
 
     loadInvite();
-  }, [inviteId, inviteSecret, inviteSecretCode, isAuthenticated, authLoading, user?.sub]);
+  }, [inviteId, inviteSecret, inviteSecretCode, isAuthenticated, authLoading, user?.sub, login]);
 
   const handleAccept = async () => {
     if (!inviteId || !inviteSecret || !inviteSecretCode) return;
@@ -126,42 +133,6 @@ function InviteAcceptContent() {
               className="rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
             >
               Go to Home
-            </button>
-          </div>
-        )}
-
-        {state.status === "login_required" && (
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
-              <svg
-                className="h-8 w-8 text-blue-600 dark:text-blue-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
-            </div>
-            <h1 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
-              Contact Invitation
-            </h1>
-            <p className="mb-2 text-gray-600 dark:text-gray-300">
-              <span className="font-semibold">{state.invite.creatorDisplayName}</span> wants to add
-              you as a contact.
-            </p>
-            <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
-              Please sign in to accept this invitation.
-            </p>
-            <button
-              onClick={login}
-              className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
-            >
-              Sign In to Accept
             </button>
           </div>
         )}
