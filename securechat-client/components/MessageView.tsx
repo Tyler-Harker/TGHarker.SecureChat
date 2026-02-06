@@ -736,7 +736,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       {/* Main Chat Area */}
       <div className={`flex min-h-0 flex-1 flex-col ${activeThread ? "hidden md:flex" : "flex"}`}>
         {/* Header */}
-        <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <div className="shrink-0 border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex items-center gap-3">
             {/* Back button - visible on mobile only */}
             {onBack && (
@@ -811,7 +811,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
             <>
               {/* Show banner for unknown participants */}
               {unknownParticipants.length > 0 && (
-                <div className="border-b border-gray-200 bg-yellow-50 p-3 dark:border-gray-700 dark:bg-yellow-900/20">
+                <div className="shrink-0 border-b border-gray-200 bg-yellow-50 p-3 dark:border-gray-700 dark:bg-yellow-900/20">
                   <div className="flex items-center gap-3">
                     <svg className="h-5 w-5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -836,7 +836,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
               {/* Show banner for incoming contact requests */}
               {incomingRequests.map((request) => (
-                <div key={request.requestId} className="border-b border-gray-200 bg-blue-50 p-3 dark:border-gray-700 dark:bg-blue-900/20">
+                <div key={request.requestId} className="shrink-0 border-b border-gray-200 bg-blue-50 p-3 dark:border-gray-700 dark:bg-blue-900/20">
                   <div className="flex items-center gap-3">
                     <svg className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
@@ -869,7 +869,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
               {/* Show banner for sent requests pending response */}
               {Array.from(sentContactRequests).map((userId) => (
-                <div key={userId} className="border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                <div key={userId} className="shrink-0 border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
                   <div className="flex items-center gap-3">
                     <svg className="h-5 w-5 flex-shrink-0 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1037,7 +1037,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       </div>
 
         {/* Message Input */}
-        <div className="border-t border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:p-4">
+        <div className="shrink-0 border-t border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:p-4">
           {/* Image preview */}
           {pendingImagePreview && (
             <div className="mb-2 flex items-start gap-2">
@@ -1133,7 +1133,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       {activeThread && (
         <div className={`flex min-h-0 w-full flex-col border-l border-gray-200 dark:border-gray-700 md:w-96 ${activeThread ? "flex" : "hidden"}`}>
           {/* Thread Header */}
-          <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="font-semibold text-gray-900 dark:text-white">Thread</h3>
             <button
               onClick={closeThread}
@@ -1307,7 +1307,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
           </div>
 
           {/* Thread Input */}
-          <div className="border-t border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:p-4">
+          <div className="shrink-0 border-t border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:p-4">
             <form onSubmit={handleSendThreadMessage} className="flex items-end gap-2">
               <textarea
                 ref={threadTextareaRef}
