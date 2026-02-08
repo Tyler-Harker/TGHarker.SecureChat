@@ -218,6 +218,16 @@ export class ApiClient {
     return this.fetch<string[]>("/api/users/me/conversations");
   }
 
+  async getUnseenCounts(): Promise<Record<string, number>> {
+    return this.fetch<Record<string, number>>("/api/users/me/unseen-counts");
+  }
+
+  async clearUnseenCount(conversationId: string): Promise<void> {
+    await this.fetch<void>(`/api/users/me/unseen-counts/${conversationId}`, {
+      method: "DELETE",
+    });
+  }
+
   async searchUsers(
     query: string,
     limit: number = 20

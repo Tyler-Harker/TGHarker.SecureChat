@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, type Contact } from "@/lib/api-client";
+import UserAvatar from "./UserAvatar";
 
 interface ContactsPanelProps {
   onClose?: () => void;
@@ -86,7 +87,6 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
         setError(err instanceof Error ? err.message : "Failed to set nickname");
       }
     } else {
-      // If nickname is empty, remove it
       handleRemoveNickname(contactUserId);
     }
   };
@@ -122,15 +122,15 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header - only shown on desktop sidebar */}
+      {/* Header */}
       {showHeader && onClose && (
-        <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <div className="flex items-center justify-between border-b border-dc-divider p-4">
+          <h2 className="text-lg font-semibold text-white">
             Contacts
           </h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-white"
             title="Close"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -141,7 +141,7 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
       )}
 
       {/* Invite Button */}
-      <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+      <div className="border-b border-dc-divider p-4">
         <button
           onClick={() => {
             if (onGenerateInvite) {
@@ -150,7 +150,7 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
               router.push("/contacts/invite/new");
             }
           }}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+          className="flex w-full items-center justify-center gap-2 rounded bg-dc-brand px-4 py-3 font-medium text-white transition-colors hover:bg-dc-brand-hover"
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -165,37 +165,37 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
       </div>
 
       {/* Add Contact Form */}
-      <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+      <div className="border-b border-dc-divider p-4">
         <form onSubmit={handleAddContact} className="flex gap-2">
           <input
             type="text"
             value={newContactId}
             onChange={(e) => setNewContactId(e.target.value)}
             placeholder="Enter user ID to add..."
-            className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+            className="min-w-0 flex-1 rounded border border-dc-input-border bg-dc-chat-input px-3 py-2 text-sm text-dc-text-primary placeholder-dc-text-muted focus:border-dc-brand focus:outline-none focus:ring-1 focus:ring-dc-brand"
             disabled={isAdding}
           />
           <button
             type="submit"
             disabled={!newContactId.trim() || isAdding}
-            className="flex-shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-shrink-0 rounded bg-dc-brand px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-dc-brand-hover disabled:opacity-50"
           >
             {isAdding ? "Adding..." : "Add"}
           </button>
         </form>
         {error && (
-          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>
+          <p className="mt-2 text-sm text-dc-danger">{error}</p>
         )}
       </div>
 
       {/* Search */}
-      <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+      <div className="border-b border-dc-divider p-4">
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search contacts..."
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+          className="w-full rounded border border-dc-input-border bg-dc-chat-input px-3 py-2 text-sm text-dc-text-primary placeholder-dc-text-muted focus:border-dc-brand focus:outline-none focus:ring-1 focus:ring-dc-brand"
         />
       </div>
 
@@ -203,28 +203,33 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center p-8">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-dc-brand border-r-transparent"></div>
           </div>
         ) : filteredContacts.length === 0 ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+          <div className="p-8 text-center text-dc-text-muted">
             {searchQuery ? "No contacts match your search" : "No contacts yet. Add someone above!"}
           </div>
         ) : (
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="space-y-0.5 px-2 py-1">
             {filteredContacts.map((contact) => (
               <div
                 key={contact.userId}
-                className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700"
+                className="flex items-center justify-between rounded-md px-2 py-2 transition-colors hover:bg-dc-hover-sidebar"
               >
-                <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <UserAvatar
+                    userId={contact.userId}
+                    displayName={contact.nickname || contact.displayName}
+                    size="sm"
+                  />
                   {editingNickname === contact.userId ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
                       <input
                         type="text"
                         value={nicknameValue}
                         onChange={(e) => setNicknameValue(e.target.value)}
                         placeholder="Enter nickname..."
-                        className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        className="min-w-0 flex-1 rounded border border-dc-input-border bg-dc-chat-input px-2 py-1 text-sm text-dc-text-primary focus:border-dc-brand focus:outline-none"
                         autoFocus
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -236,7 +241,7 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                       />
                       <button
                         onClick={() => handleSaveNickname(contact.userId)}
-                        className="rounded p-1 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
+                        className="rounded p-1 text-dc-success transition-colors hover:bg-dc-hover-sidebar"
                         title="Save"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -245,7 +250,7 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                       </button>
                       <button
                         onClick={handleCancelEditingNickname}
-                        className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                        className="rounded p-1 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
                         title="Cancel"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -254,32 +259,32 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                       </button>
                     </div>
                   ) : (
-                    <>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-medium text-gray-900 dark:text-white">
+                        <span className="truncate text-sm font-medium text-dc-text-primary">
                           {contact.nickname || contact.displayName}
                         </span>
                         {contact.nickname && (
-                          <span className="truncate text-sm text-gray-500 dark:text-gray-400">
+                          <span className="truncate text-xs text-dc-text-muted">
                             ({contact.displayName})
                           </span>
                         )}
                       </div>
-                      <div className="truncate text-sm text-gray-500 dark:text-gray-400">
+                      <div className="truncate text-xs text-dc-text-secondary">
                         {contact.email}
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
-                <div className="ml-4 flex flex-shrink-0 gap-2">
+                <div className="ml-2 flex flex-shrink-0 gap-1">
                   {editingNickname !== contact.userId && (
                     <>
                       <button
                         onClick={() => handleStartEditingNickname(contact)}
-                        className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                        className="rounded p-1.5 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
                         title="Edit nickname"
                       >
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -291,10 +296,10 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                       {onStartConversation && (
                         <button
                           onClick={() => onStartConversation([contact])}
-                          className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                          className="rounded p-1.5 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-brand"
                           title="Start conversation"
                         >
-                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -306,10 +311,10 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                       )}
                       <button
                         onClick={() => handleRemoveContact(contact.userId)}
-                        className="rounded-lg p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                        className="rounded p-1.5 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-danger"
                         title="Remove contact"
                       >
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"

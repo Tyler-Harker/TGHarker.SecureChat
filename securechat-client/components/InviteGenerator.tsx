@@ -36,12 +36,10 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
     }
   }, []);
 
-  // Generate invite on mount
   useEffect(() => {
     generateInvite();
   }, [generateInvite]);
 
-  // Set up SSE connection to listen for invite acceptance
   useEffect(() => {
     if (!invite || !accessToken) return;
 
@@ -63,7 +61,6 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
           console.log("Invite accepted by", data.displayName);
           setAcceptedByName(data.displayName);
 
-          // Close after a brief delay to show the success message
           setTimeout(() => {
             if (onClose) {
               onClose();
@@ -88,7 +85,6 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
     };
   }, [invite, accessToken, router, onClose]);
 
-  // Timer countdown effect
   useEffect(() => {
     if (!invite) return;
 
@@ -136,85 +132,52 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
     <div className="flex h-full flex-col items-center justify-center p-4">
       <div className="w-full max-w-sm">
         {isLoading ? (
-          <div className="flex flex-col items-center rounded-xl bg-white p-8 shadow-lg dark:bg-gray-800">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-            <p className="mt-4 text-gray-600 dark:text-gray-300">Generating invite...</p>
+          <div className="flex flex-col items-center rounded-lg border border-dc-divider bg-dc-modal-bg p-8">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-dc-brand border-r-transparent"></div>
+            <p className="mt-4 text-dc-text-secondary">Generating invite...</p>
           </div>
         ) : error ? (
-          <div className="rounded-xl bg-white p-8 text-center shadow-lg dark:bg-gray-800">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
-              <svg
-                className="h-8 w-8 text-red-600 dark:text-red-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
+          <div className="rounded-lg border border-dc-divider bg-dc-modal-bg p-8 text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-dc-danger/20">
+              <svg className="h-8 w-8 text-dc-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <p className="mb-4 text-red-600 dark:text-red-400">{error}</p>
+            <p className="mb-4 text-dc-danger">{error}</p>
             <button
               onClick={generateInvite}
-              className="rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
+              className="rounded bg-dc-brand px-6 py-3 font-semibold text-white hover:bg-dc-brand-hover"
             >
               Try Again
             </button>
           </div>
         ) : invite ? (
-          <div className="flex flex-col items-center rounded-xl bg-white p-6 shadow-lg dark:bg-gray-800">
+          <div className="flex flex-col items-center rounded-lg border border-dc-divider bg-dc-modal-bg p-6">
             {acceptedByName ? (
-              /* Success State */
               <div className="flex flex-col items-center">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-                  <svg
-                    className="h-8 w-8 text-green-600 dark:text-green-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 13l4 4L19 7"
-                    />
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-dc-success/20">
+                  <svg className="h-8 w-8 text-dc-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
-                  Invite Accepted!
-                </h2>
-                <p className="text-center text-gray-600 dark:text-gray-300">
-                  <span className="font-semibold">{acceptedByName}</span> is now your contact.
+                <h2 className="mb-2 text-xl font-semibold text-white">Invite Accepted!</h2>
+                <p className="text-center text-dc-text-secondary">
+                  <span className="font-semibold text-dc-text-primary">{acceptedByName}</span> is now your contact.
                 </p>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-sm text-dc-text-muted">
                   {onClose ? "Closing..." : "Redirecting to contacts..."}
                 </p>
               </div>
             ) : (
               <>
-                {/* QR Code */}
                 <div className="mb-4 rounded-lg bg-white p-4">
-                  <QRCodeSVG
-                    value={invite.inviteUrl}
-                    size={200}
-                    level="M"
-                    includeMargin={false}
-                  />
+                  <QRCodeSVG value={invite.inviteUrl} size={200} level="M" includeMargin={false} />
                 </div>
-
-                {/* Timer */}
                 <div className="mb-4 text-center">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Expires in</p>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">{timeLeft}</p>
+                  <p className="text-sm text-dc-text-muted">Expires in</p>
+                  <p className="text-xl font-semibold text-white">{timeLeft}</p>
                 </div>
-
-                {/* Instructions */}
-                <p className="mb-4 text-center text-sm text-gray-600 dark:text-gray-300">
+                <p className="mb-4 text-center text-sm text-dc-text-secondary">
                   Scan this QR code with another device, or share the link below.
                 </p>
               </>
@@ -222,13 +185,12 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
 
             {!acceptedByName && (
               <>
-                {/* Copy URL Button */}
                 <button
                   onClick={handleCopyUrl}
-                  className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-semibold transition-colors ${
+                  className={`flex w-full items-center justify-center gap-2 rounded px-4 py-3 font-semibold transition-colors ${
                     copied
-                      ? "bg-green-600 text-white"
-                      : "bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                      ? "bg-dc-success text-white"
+                      : "bg-dc-hover-sidebar text-dc-text-primary hover:bg-dc-selected-sidebar"
                   }`}
                 >
                   {copied ? (
@@ -241,22 +203,15 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
                   ) : (
                     <>
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                        />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
                       Copy Invite Link
                     </>
                   )}
                 </button>
-
-                {/* Regenerate Button */}
                 <button
                   onClick={generateInvite}
-                  className="mt-3 text-sm text-blue-600 hover:underline dark:text-blue-400"
+                  className="mt-3 text-sm text-dc-brand hover:underline"
                 >
                   Generate New Link
                 </button>

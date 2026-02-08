@@ -402,4 +402,29 @@ public class UserGrain : Grain, IUserGrain
 
         return Task.FromResult(_state.State.ReceivedContactRequests.Keys.ToList());
     }
+
+    public Task<Dictionary<Guid, int>> GetUnseenCountsAsync()
+    {
+        ValidateAccess();
+
+        return Task.FromResult(new Dictionary<Guid, int>(_state.State.UnseenMessageCounts));
+    }
+
+    public async Task IncrementUnseenCountAsync(Guid conversationId)
+    {
+        // Called grain-to-grain from ConversationGrain — no ValidateAccess
+        _state.State.UnseenMessageCounts.TryGetValue(conversationId, out var current);
+        _state.State.UnseenMessageCounts[conversationId] = current + 1;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task ClearUnseenCountAsync(Guid conversationId)
+    {
+        ValidateAccess();
+
+        if (_state.State.UnseenMessageCounts.Remove(conversationId))
+        {
+            await _state.WriteStateAsync();
+        }
+    }
 }

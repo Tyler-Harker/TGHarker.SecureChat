@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { apiClient, type Contact, type Conversation } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
+import UserAvatar from "./UserAvatar";
 
 interface ContactPickerModalProps {
   isOpen: boolean;
@@ -76,23 +77,23 @@ export default function ContactPickerModal({ isOpen, onClose, onSelectContacts }
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white shadow-xl dark:bg-gray-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-lg rounded-lg border border-dc-divider bg-dc-modal-bg shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
+        <div className="flex items-center justify-between border-b border-dc-divider p-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-lg font-semibold text-white">
               Start a Conversation
             </h2>
             {selectedContacts.size > 0 && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-dc-text-muted">
                 {selectedContacts.size} selected
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -107,7 +108,7 @@ export default function ContactPickerModal({ isOpen, onClose, onSelectContacts }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search contacts..."
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+            className="w-full rounded border border-dc-input-border bg-dc-chat-input px-3 py-2 text-sm text-dc-text-primary placeholder-dc-text-muted focus:border-dc-brand focus:outline-none focus:ring-1 focus:ring-dc-brand"
             autoFocus
           />
         </div>
@@ -116,14 +117,14 @@ export default function ContactPickerModal({ isOpen, onClose, onSelectContacts }
         <div className="max-h-96 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-dc-brand border-r-transparent"></div>
             </div>
           ) : filteredContacts.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+            <div className="p-8 text-center text-dc-text-muted">
               {searchQuery ? "No contacts found" : "No contacts yet"}
             </div>
           ) : (
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            <div className="space-y-0.5 px-2 py-1">
               {filteredContacts.map((contact) => {
                 const displayName = contact.nickname || contact.displayName;
                 const isSelected = selectedContacts.has(contact.userId);
@@ -132,35 +133,30 @@ export default function ContactPickerModal({ isOpen, onClose, onSelectContacts }
                   <button
                     key={contact.userId}
                     onClick={() => toggleContactSelection(contact.userId)}
-                    className={`flex w-full items-center gap-3 p-4 text-left transition-colors ${
+                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                       isSelected
-                        ? "bg-blue-50 dark:bg-blue-900/20"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-700"
+                        ? "bg-dc-selected-sidebar"
+                        : "hover:bg-dc-hover-sidebar"
                     }`}
                   >
-                    {/* Checkbox */}
-                    <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
+                    <div className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => {}}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                        className="h-4 w-4 rounded border-dc-input-border bg-dc-chat-input accent-dc-brand"
                       />
                     </div>
-
-                    {/* Avatar */}
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-                      <span className="text-sm font-semibold">
-                        {displayName.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-
-                    {/* Contact Info */}
+                    <UserAvatar
+                      userId={contact.userId}
+                      displayName={displayName}
+                      size="sm"
+                    />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-gray-900 dark:text-white">
+                      <p className="truncate text-sm font-medium text-dc-text-primary">
                         {displayName}
                       </p>
-                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">
+                      <p className="truncate text-xs text-dc-text-secondary">
                         {contact.email}
                       </p>
                     </div>
@@ -172,18 +168,18 @@ export default function ContactPickerModal({ isOpen, onClose, onSelectContacts }
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+        <div className="border-t border-dc-divider p-4">
           <div className="flex gap-2">
             <button
               onClick={handleCreateConversation}
               disabled={selectedContacts.size === 0}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex-1 rounded bg-dc-brand px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-dc-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               Create Conversation
             </button>
             <button
               onClick={() => window.location.href = "/contacts"}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              className="rounded bg-dc-hover-sidebar px-4 py-2 text-sm font-medium text-dc-text-primary transition-colors hover:bg-dc-selected-sidebar"
             >
               Manage
             </button>

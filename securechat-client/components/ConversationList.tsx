@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { Conversation, Contact } from "@/lib/api-client";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
+import UserAvatar from "./UserAvatar";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -64,51 +65,71 @@ export default function ConversationList({
     }
   };
 
+  const isDm = (conversation: Conversation): boolean => {
+    return conversation.participantUserIds.length <= 2;
+  };
+
+  const getDmParticipantId = (conversation: Conversation): string | null => {
+    const other = conversation.participantUserIds.find(
+      (id) => id !== user?.sub
+    );
+    return other || null;
+  };
+
   if (conversations.length === 0) {
     return (
-      <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+      <div className="p-8 text-center text-dc-text-muted">
         No conversations yet. Start a new one!
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+    <div className="space-y-0.5 px-2 py-1">
       {conversations.map((conversation) => {
         const unread = unreadCounts[conversation.conversationId] || 0;
+        const isSelected = selectedId === conversation.conversationId;
+        const dm = isDm(conversation);
+        const dmParticipantId = dm ? getDmParticipantId(conversation) : null;
+        const title = getConversationTitle(conversation);
+
         return (
           <button
             key={conversation.conversationId}
             onClick={() => onSelect(conversation.conversationId)}
-            className={`w-full p-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 ${
-              selectedId === conversation.conversationId
-                ? "bg-blue-50 dark:bg-blue-900/20"
-                : ""
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+              isSelected
+                ? "bg-dc-selected-sidebar"
+                : "hover:bg-dc-hover-sidebar"
             }`}
           >
-            <div className="mb-1 flex items-center justify-between">
-              <div className={`${unread > 0 ? "font-bold" : "font-semibold"} text-gray-900 dark:text-white`}>
-                {getConversationTitle(conversation)}
-              </div>
-              <div className="flex items-center gap-2">
-                {unread > 0 && (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-bold text-white">
-                    {unread > 99 ? "99+" : unread}
-                  </span>
-                )}
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {new Date(conversation.lastActivityAt).toLocaleDateString()}
-                </span>
-              </div>
-            </div>
-            <div className={`text-sm ${unread > 0 ? "font-medium text-gray-900 dark:text-gray-200" : "text-gray-600 dark:text-gray-400"}`}>
-              {conversation.messageCount} messages
-              {conversation.participantUserIds.length > 2 && (
-                <span className="ml-1">
-                  • {conversation.participantUserIds.length} participants
-                </span>
-              )}
-            </div>
+            {dm && dmParticipantId ? (
+              <UserAvatar
+                userId={dmParticipantId}
+                displayName={getDisplayName(dmParticipantId)}
+                size="sm"
+              />
+            ) : (
+              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center text-dc-text-muted text-sm font-medium">
+                #
+              </span>
+            )}
+            <span
+              className={`min-w-0 flex-1 truncate text-sm ${
+                unread > 0
+                  ? "font-semibold text-white"
+                  : isSelected
+                    ? "text-white"
+                    : "text-dc-text-secondary"
+              }`}
+            >
+              {title}
+            </span>
+            {unread > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-dc-brand px-1 text-[10px] font-bold text-white">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
           </button>
         );
       })}

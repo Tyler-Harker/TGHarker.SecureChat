@@ -373,6 +373,54 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// Get the current user's unseen message counts per conversation.
+    /// </summary>
+    [HttpGet("me/unseen-counts")]
+    public async Task<ActionResult<Dictionary<Guid, int>>> GetUnseenCounts()
+    {
+        try
+        {
+            var userId = User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized();
+
+            RequestContext.Set("UserId", userId);
+            var userGrain = _client.GetGrain<IUserGrain>(userId);
+            var counts = await userGrain.GetUnseenCountsAsync();
+            return Ok(counts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get unseen counts");
+            return StatusCode(500, new { error = "Failed to get unseen counts" });
+        }
+    }
+
+    /// <summary>
+    /// Clear the unseen message count for a specific conversation.
+    /// </summary>
+    [HttpDelete("me/unseen-counts/{conversationId:guid}")]
+    public async Task<ActionResult> ClearUnseenCount(Guid conversationId)
+    {
+        try
+        {
+            var userId = User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized();
+
+            RequestContext.Set("UserId", userId);
+            var userGrain = _client.GetGrain<IUserGrain>(userId);
+            await userGrain.ClearUnseenCountAsync(conversationId);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear unseen count for conversation {ConversationId}", conversationId);
+            return StatusCode(500, new { error = "Failed to clear unseen count" });
+        }
+    }
+
+    /// <summary>
     /// Server-Sent Events endpoint for user-level events (e.g. new conversations).
     /// Accepts access token via query parameter since EventSource doesn't support custom headers.
     /// </summary>

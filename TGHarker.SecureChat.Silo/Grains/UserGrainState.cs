@@ -41,4 +41,7 @@ public class UserGrainState
 
     [Id(11)]
     public Dictionary<string, string> ReceivedContactRequests { get; set; } = new(); // requestId -> fromUserId
+
+    [Id(12)]
+    public Dictionary<Guid, int> UnseenMessageCounts { get; set; } = new(); // conversationId -> unseen count
 }

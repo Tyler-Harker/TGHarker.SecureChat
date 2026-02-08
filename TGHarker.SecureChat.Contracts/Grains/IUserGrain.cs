@@ -137,4 +137,22 @@ public interface IUserGrain : IGrainWithStringKey
     /// Requires: Caller must be the user themselves.
     /// </summary>
     Task<List<string>> GetReceivedContactRequestIdsAsync();
+
+    /// <summary>
+    /// Gets unseen message counts per conversation.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task<Dictionary<Guid, int>> GetUnseenCountsAsync();
+
+    /// <summary>
+    /// Increments the unseen message count for a conversation.
+    /// Called grain-to-grain by ConversationGrain when a new message is posted.
+    /// </summary>
+    Task IncrementUnseenCountAsync(Guid conversationId);
+
+    /// <summary>
+    /// Clears the unseen message count for a conversation.
+    /// Requires: Caller must be the user themselves.
+    /// </summary>
+    Task ClearUnseenCountAsync(Guid conversationId);
 }

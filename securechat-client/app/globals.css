@@ -1,28 +1,53 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: #313338;
+  --color-foreground: #dcddde;
+  --color-dc-sidebar: #2b2d31;
+  --color-dc-chat-bg: #313338;
+  --color-dc-chat-input: #383a40;
+  --color-dc-header: #313338;
+  --color-dc-header-border: #1f2023;
+  --color-dc-text-primary: #dcddde;
+  --color-dc-text-secondary: #949ba4;
+  --color-dc-text-muted: #6d6f78;
+  --color-dc-text-link: #00a8fc;
+  --color-dc-hover-message: #2e3035;
+  --color-dc-hover-sidebar: #35373c;
+  --color-dc-selected-sidebar: #404249;
+  --color-dc-brand: #5865f2;
+  --color-dc-brand-hover: #4752c4;
+  --color-dc-danger: #ed4245;
+  --color-dc-success: #57f287;
+  --color-dc-warning: #fee75c;
+  --color-dc-divider: #3f4147;
+  --color-dc-input-border: #1e1f22;
+  --color-dc-reaction-bg: #2b2d31;
+  --color-dc-reaction-active: oklch(0.55 0.15 270 / 0.3);
+  --color-dc-reaction-border: #5865f2;
+  --color-dc-banner-warning-bg: oklch(0.8 0.12 90 / 0.1);
+  --color-dc-banner-info-bg: oklch(0.55 0.15 270 / 0.1);
+  --color-dc-modal-bg: #2b2d31;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: #313338;
+  color: #dcddde;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Discord-style scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #2b2d31;
+}
+::-webkit-scrollbar-thumb {
+  background: #1a1b1e;
+  border-radius: 4px;
 }
 
 /* Safe area support for mobile devices with notches/home indicators */

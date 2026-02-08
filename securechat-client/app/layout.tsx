@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: "SecureChat - End-to-End Encrypted Messaging",
   description: "Secure, private messaging with end-to-end encryption",
   manifest: "/manifest.json",
-  themeColor: "#2563eb",
+  themeColor: "#313338",
   viewport: {
     width: "device-width",
     initialScale: 1,
@@ -44,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" style={{ backgroundColor: "#313338" }}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

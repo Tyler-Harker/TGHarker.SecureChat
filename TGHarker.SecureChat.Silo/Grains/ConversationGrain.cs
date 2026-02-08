@@ -428,6 +428,12 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
                     var stream = indicatorStreamProvider.GetStream<string>(StreamId.Create("ConversationEvents", convId));
                     await stream.OnNextAsync(indicatorJson);
                 }
+
+                // Persist unseen count for non-sender participants
+                if (participantId != senderUserId)
+                {
+                    await userGrain.IncrementUnseenCountAsync(_state.State.ConversationId);
+                }
             }
             catch (Exception ex)
             {

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type Contact, type RetentionPeriod } from "@/lib/api-client";
+import UserAvatar from "@/components/UserAvatar";
 
 export default function NewConversationPage() {
   const router = useRouter();
@@ -97,8 +98,8 @@ export default function NewConversationPage() {
   // Show loading while auth is initializing
   if (isAuthLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+      <div className="flex min-h-screen items-center justify-center bg-dc-chat-bg">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-dc-brand border-r-transparent"></div>
       </div>
     );
   }
@@ -106,12 +107,12 @@ export default function NewConversationPage() {
   // Require authentication
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4 dark:bg-gray-900">
-        <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg dark:bg-gray-800">
+      <div className="flex min-h-screen items-center justify-center bg-dc-chat-bg p-4">
+        <div className="w-full max-w-md rounded-xl bg-dc-modal-bg p-8 shadow-lg">
           <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-dc-brand/20">
               <svg
-                className="h-8 w-8 text-blue-600 dark:text-blue-400"
+                className="h-8 w-8 text-dc-brand"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -124,15 +125,15 @@ export default function NewConversationPage() {
                 />
               </svg>
             </div>
-            <h1 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
+            <h1 className="mb-2 text-xl font-semibold text-white">
               Sign In Required
             </h1>
-            <p className="mb-6 text-gray-600 dark:text-gray-300">
+            <p className="mb-6 text-dc-text-secondary">
               Please sign in to create a new conversation.
             </p>
             <button
               onClick={() => login()}
-              className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
+              className="w-full rounded-lg bg-dc-brand px-6 py-3 font-semibold text-white hover:bg-dc-brand-hover"
             >
               Sign In
             </button>
@@ -143,76 +144,76 @@ export default function NewConversationPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-100 dark:bg-gray-900">
+    <div className="flex min-h-screen flex-col bg-dc-chat-bg">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-        <div className="mx-auto flex max-w-2xl items-center gap-4 px-4 py-4">
+      <header className="border-b border-dc-header-border bg-dc-header shadow-sm">
+        <div className="mx-auto flex max-w-2xl items-center gap-4 px-4 py-3">
           <button
             onClick={handleBack}
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-white"
             title="Back"
           >
-            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">New Conversation</h1>
+          <h1 className="text-lg font-semibold text-white">New Conversation</h1>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl">
           {/* Search */}
-          <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="border-b border-dc-divider p-4">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search contacts..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+              className="w-full rounded border border-dc-input-border bg-dc-chat-input px-3 py-2.5 text-sm text-dc-text-primary placeholder-dc-text-muted focus:border-dc-brand focus:outline-none focus:ring-1 focus:ring-dc-brand"
             />
           </div>
 
           {/* Selected count */}
           {selectedContacts.size > 0 && (
-            <div className="border-b border-gray-200 bg-blue-50 px-4 py-3 dark:border-gray-700 dark:bg-blue-900/20">
-              <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+            <div className="border-b border-dc-divider bg-dc-banner-info-bg px-4 py-3">
+              <p className="text-sm font-medium text-dc-text-primary">
                 {selectedContacts.size} contact{selectedContacts.size !== 1 ? "s" : ""} selected
               </p>
             </div>
           )}
 
           {/* Message Retention */}
-          <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <div className="border-b border-dc-divider p-4">
+            <label className="mb-2 block text-sm font-medium text-dc-text-secondary">
               Message Retention
             </label>
             <select
               value={retentionPolicy}
               onChange={(e) => setRetentionPolicy(Number(e.target.value) as RetentionPeriod)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-full rounded border border-dc-input-border bg-dc-chat-input px-3 py-2 text-sm text-dc-text-primary focus:border-dc-brand focus:outline-none focus:ring-1 focus:ring-dc-brand"
             >
               <option value={24}>24 hours</option>
               <option value={72}>3 days</option>
               <option value={168}>7 days (default)</option>
               <option value={720}>30 days</option>
             </select>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-dc-text-muted">
               Messages will be automatically deleted after this period
             </p>
           </div>
 
           {/* Contact List */}
-          <div className="bg-white dark:bg-gray-800">
+          <div>
             {isLoading ? (
               <div className="flex items-center justify-center p-12">
-                <div className="h-10 w-10 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-dc-brand border-r-transparent"></div>
               </div>
             ) : filteredContacts.length === 0 ? (
               <div className="p-12 text-center">
                 <svg
-                  className="mx-auto mb-4 h-12 w-12 text-gray-400"
+                  className="mx-auto mb-4 h-12 w-12 text-dc-text-muted"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -224,10 +225,10 @@ export default function NewConversationPage() {
                     d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
                   />
                 </svg>
-                <p className="text-lg font-medium text-gray-900 dark:text-white">
+                <p className="text-lg font-medium text-dc-text-primary">
                   {searchQuery ? "No contacts found" : "No contacts yet"}
                 </p>
-                <p className="mt-1 text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-dc-text-muted">
                   {searchQuery
                     ? "Try a different search term"
                     : "Add contacts first to start a conversation"}
@@ -235,64 +236,76 @@ export default function NewConversationPage() {
                 {!searchQuery && (
                   <button
                     onClick={() => router.push("/contacts")}
-                    className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    className="mt-4 rounded bg-dc-brand px-4 py-2 text-sm font-medium text-white hover:bg-dc-brand-hover"
                   >
                     Go to Contacts
                   </button>
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredContacts.map((contact) => (
-                  <label
-                    key={contact.userId}
-                    className="flex cursor-pointer items-center gap-4 px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedContacts.has(contact.userId)}
-                      onChange={() => toggleContact(contact.userId)}
-                      className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                    />
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-lg font-semibold text-white">
-                      {contact.displayName.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-base font-medium text-gray-900 dark:text-white">
-                        {contact.displayName}
+              <div className="space-y-0.5 px-2 py-1">
+                {filteredContacts.map((contact) => {
+                  const isSelected = selectedContacts.has(contact.userId);
+                  return (
+                    <label
+                      key={contact.userId}
+                      className={`flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors ${
+                        isSelected ? "bg-dc-selected-sidebar" : "hover:bg-dc-hover-sidebar"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleContact(contact.userId)}
+                        className="h-4 w-4 rounded border-dc-input-border bg-dc-chat-input text-dc-brand accent-dc-brand focus:ring-dc-brand"
+                      />
+                      <UserAvatar
+                        userId={contact.userId}
+                        displayName={contact.nickname || contact.displayName}
+                        size="sm"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-dc-text-primary">
+                          {contact.nickname || contact.displayName}
+                          {contact.nickname && (
+                            <span className="ml-2 text-xs text-dc-text-muted">
+                              ({contact.displayName})
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate text-xs text-dc-text-secondary">
+                          {contact.email}
+                        </div>
                       </div>
-                      <div className="truncate text-sm text-gray-500 dark:text-gray-400">
-                        {contact.email}
-                      </div>
-                    </div>
-                  </label>
-                ))}
+                    </label>
+                  );
+                })}
               </div>
             )}
           </div>
 
           {/* Error */}
           {error && (
-            <div className="border-t border-gray-200 bg-red-50 px-4 py-3 dark:border-gray-700 dark:bg-red-900/20">
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div className="border-t border-dc-divider bg-dc-banner-warning-bg px-4 py-3">
+              <p className="text-sm text-dc-danger">{error}</p>
             </div>
           )}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+      <footer className="border-t border-dc-header-border bg-dc-header p-4">
         <div className="mx-auto flex max-w-2xl gap-3">
           <button
             onClick={handleBack}
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="flex-1 rounded bg-dc-hover-sidebar px-4 py-2.5 text-sm font-medium text-dc-text-primary transition-colors hover:bg-dc-selected-sidebar"
           >
             Cancel
           </button>
           <button
             onClick={handleCreateConversation}
             disabled={selectedContacts.size === 0 || isCreating}
-            className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 rounded bg-dc-brand px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-dc-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isCreating ? "Creating..." : "Create Conversation"}
           </button>

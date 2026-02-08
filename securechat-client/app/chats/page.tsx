@@ -34,6 +34,14 @@ function ChatsContent() {
     if (accessToken) {
       apiClient.setAccessToken(accessToken);
       loadConversations();
+      // Load persisted unseen counts
+      apiClient.getUnseenCounts().then((counts) => {
+        const mapped: Record<string, number> = {};
+        for (const [key, value] of Object.entries(counts)) {
+          if (value > 0) mapped[key] = value;
+        }
+        setUnreadCounts(mapped);
+      }).catch(() => {});
     }
   }, [accessToken]);
 
@@ -147,6 +155,8 @@ function ChatsContent() {
         delete next[conversationId];
         return next;
       });
+      // Persist the clear on the backend
+      apiClient.clearUnseenCount(conversationId).catch(() => {});
     } else if (!conversationId && !isLoading) {
       setSelectedConversationId(null);
       selectedConversationIdRef.current = null;
@@ -278,32 +288,32 @@ function ChatsContent() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-100 dark:bg-gray-900">
+    <div className="flex h-screen flex-col bg-dc-chat-bg">
       {/* Desktop Top Navigation */}
-      <div className="hidden border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 md:block">
+      <div className="hidden border-b border-dc-header-border bg-dc-sidebar md:block">
         <div className="flex items-center justify-between px-6">
           <div className="flex gap-1">
             <button
               onClick={() => handleSetActiveTab("chats")}
-              className={`relative px-4 py-3 font-medium transition-colors ${
+              className={`relative px-4 py-3 text-sm font-medium transition-colors ${
                 activeTab === "chats"
-                  ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400"
-                  : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                  ? "border-b-2 border-dc-brand text-white"
+                  : "text-dc-text-muted hover:text-dc-text-primary"
               }`}
             >
               Chats
               {unreadChatCount > 0 && activeTab !== "chats" && (
-                <span className="absolute -right-1 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
+                <span className="absolute -right-1 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-dc-danger px-1 text-[10px] font-bold text-white">
                   {unreadChatCount > 99 ? "99+" : unreadChatCount}
                 </span>
               )}
             </button>
             <button
               onClick={() => handleSetActiveTab("contacts")}
-              className={`px-4 py-3 font-medium transition-colors ${
+              className={`px-4 py-3 text-sm font-medium transition-colors ${
                 activeTab === "contacts"
-                  ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400"
-                  : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                  ? "border-b-2 border-dc-brand text-white"
+                  : "text-dc-text-muted hover:text-dc-text-primary"
               }`}
             >
               Contacts
@@ -311,12 +321,12 @@ function ChatsContent() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600 dark:text-gray-400">
+            <span className="text-sm text-dc-text-secondary">
               {user?.email || user?.name}
             </span>
             <button
               onClick={() => router.push("/settings")}
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+              className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
               title="Settings"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -326,7 +336,7 @@ function ChatsContent() {
             </button>
             <button
               onClick={logout}
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+              className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
               title="Logout"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -338,20 +348,20 @@ function ChatsContent() {
       </div>
 
       {/* Desktop Content */}
-      <div className="hidden flex-1 md:flex">
+      <div className="hidden min-h-0 flex-1 md:flex">
         {/* Sidebar */}
-        <div className="w-80 border-r border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex w-60 flex-col border-r border-dc-divider bg-dc-sidebar">
           {activeTab === "chats" ? (
             <>
-              <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+              <div className="p-2">
                 <button
                   onClick={() => router.push("/conversations/new")}
-                  className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700"
+                  className="w-full rounded bg-dc-chat-input px-2 py-1.5 text-left text-sm text-dc-text-muted transition-colors hover:bg-dc-input-border"
                 >
-                  + New Conversation
+                  Find or start a conversation
                 </button>
               </div>
-              <div className="overflow-y-auto" style={{ height: "calc(100vh - 130px)" }}>
+              <div className="flex-1 overflow-y-auto">
                 <ConversationList
                   conversations={conversations}
                   selectedId={selectedConversationId}
@@ -361,7 +371,7 @@ function ChatsContent() {
               </div>
             </>
           ) : (
-            <div className="h-full overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
               <ContactsPanel
                 onStartConversation={handleStartConversation}
                 onGenerateInvite={() => setShowInviteGenerator(true)}
@@ -372,10 +382,10 @@ function ChatsContent() {
         </div>
 
         {/* Main Content */}
-        <div className="flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           {/* Keep MessageView mounted (hidden) when on contacts tab so SSE stays alive for unread badge */}
           {selectedConversationId && (
-            <div className={activeTab === "chats" ? "flex h-full flex-col" : "hidden"}>
+            <div className={activeTab === "chats" ? "flex min-h-0 h-full flex-col" : "hidden"}>
               <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
             </div>
           )}
@@ -385,13 +395,13 @@ function ChatsContent() {
             ) : (
               <div className="flex h-full items-center justify-center">
                 <div className="text-center">
-                  <svg className="mx-auto mb-4 h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="mx-auto mb-4 h-16 w-16 text-dc-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
-                  <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
+                  <h2 className="mb-2 text-xl font-semibold text-dc-text-primary">
                     {activeTab === "chats" ? "Select a conversation" : "Your Contacts"}
                   </h2>
-                  <p className="text-gray-500 dark:text-gray-400">
+                  <p className="text-dc-text-secondary">
                     {activeTab === "chats"
                       ? "Choose a conversation or start a new one"
                       : "Select a contact to start chatting"}
@@ -404,16 +414,16 @@ function ChatsContent() {
       </div>
 
       {/* Mobile Layout */}
-      <div className="flex flex-1 flex-col md:hidden">
+      <div className="flex min-h-0 flex-1 flex-col md:hidden">
         {selectedConversationId ? (
           <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
         ) : (
           <>
-            <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Chats</h1>
+            <div className="flex items-center justify-between border-b border-dc-header-border bg-dc-sidebar p-4">
+              <h1 className="text-xl font-bold text-white">Chats</h1>
               <button
                 onClick={() => router.push("/conversations/new")}
-                className="rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700"
+                className="rounded bg-dc-brand p-2 text-white transition-colors hover:bg-dc-brand-hover"
                 title="New conversation"
               >
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -422,7 +432,7 @@ function ChatsContent() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-800">
+            <div className="flex-1 overflow-y-auto bg-dc-sidebar">
               <ConversationList
                 conversations={conversations}
                 selectedId={selectedConversationId}
@@ -432,9 +442,9 @@ function ChatsContent() {
             </div>
 
             {/* Mobile Bottom Navigation */}
-            <div className="safe-area-bottom border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+            <div className="safe-area-bottom border-t border-dc-header-border bg-dc-sidebar">
               <div className="flex">
-                <button className="flex flex-1 flex-col items-center gap-1 py-3 text-blue-600 dark:text-blue-400">
+                <button className="flex flex-1 flex-col items-center gap-1 py-3 text-dc-brand">
                   <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
@@ -442,7 +452,7 @@ function ChatsContent() {
                 </button>
                 <button
                   onClick={() => router.push("/contacts")}
-                  className="flex flex-1 flex-col items-center gap-1 py-3 text-gray-500 dark:text-gray-400"
+                  className="flex flex-1 flex-col items-center gap-1 py-3 text-dc-text-muted"
                 >
                   <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -451,7 +461,7 @@ function ChatsContent() {
                 </button>
                 <button
                   onClick={() => router.push("/settings")}
-                  className="flex flex-1 flex-col items-center gap-1 py-3 text-gray-500 dark:text-gray-400"
+                  className="flex flex-1 flex-col items-center gap-1 py-3 text-dc-text-muted"
                 >
                   <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
