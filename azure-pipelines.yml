@@ -256,6 +256,7 @@ stages:
                           --env-vars \
                             "ASPNETCORE_ENVIRONMENT=Production" \
                             "ConnectionStrings__tableStorage=$(STORAGE_CONNECTION_STRING)" \
+                            "ConnectionStrings__blobStorage=$(STORAGE_CONNECTION_STRING)" \
                             "Authentication__Authority=$(AUTH_AUTHORITY)" \
                             "Authentication__Audience=$(AUTH_AUDIENCE)" \
                             "Cors__AllowedOrigins=$(CORS_ALLOWED_ORIGINS)" \
@@ -272,6 +273,7 @@ stages:
                           --set-env-vars \
                             "ASPNETCORE_ENVIRONMENT=Production" \
                             "ConnectionStrings__tableStorage=$(STORAGE_CONNECTION_STRING)" \
+                            "ConnectionStrings__blobStorage=$(STORAGE_CONNECTION_STRING)" \
                             "Authentication__Authority=$(AUTH_AUTHORITY)" \
                             "Authentication__Audience=$(AUTH_AUDIENCE)" \
                             "Cors__AllowedOrigins=$(CORS_ALLOWED_ORIGINS)" \
