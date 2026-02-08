@@ -218,38 +218,6 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// Add a user as a contact.
-    /// </summary>
-    [HttpPost("me/contacts/{contactUserId}")]
-    public async Task<ActionResult> AddContact(string contactUserId)
-    {
-        try
-        {
-            // Verify the contact user exists
-            var contactGrain = _client.GetGrain<IUserGrain>(contactUserId);
-            var contactInfo = await contactGrain.GetContactInfoAsync();
-            if (contactInfo == null)
-            {
-                return NotFound(new { error = "User not found" });
-            }
-
-            var userGrain = _client.GetGrain<IUserGrain>(UserId);
-            await userGrain.AddContactAsync(contactUserId);
-
-            return Ok(new { message = "Contact added successfully", contact = contactInfo });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to add contact {ContactUserId} for user {UserId}", contactUserId, UserId);
-            return StatusCode(500, new { error = "Failed to add contact" });
-        }
-    }
-
-    /// <summary>
     /// Remove a user from contacts.
     /// </summary>
     [HttpDelete("me/contacts/{contactUserId}")]

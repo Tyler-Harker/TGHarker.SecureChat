@@ -12,6 +12,7 @@ import SplashScreen from "@/components/SplashScreen";
 import AuthGuard from "@/components/AuthGuard";
 import ContactPickerModal from "@/components/ContactPickerModal";
 import InviteGenerator from "@/components/InviteGenerator";
+import NotificationWarning from "@/components/NotificationWarning";
 
 type TabView = "chats" | "contacts";
 
@@ -233,6 +234,7 @@ function ChatsContent() {
             <span className="text-sm text-dc-text-secondary">
               {user?.email || user?.name}
             </span>
+            <NotificationWarning />
             <button
               onClick={() => router.push("/settings")}
               className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
@@ -330,15 +332,18 @@ function ChatsContent() {
           <>
             <div className="flex items-center justify-between border-b border-dc-header-border bg-dc-sidebar p-4">
               <h1 className="text-xl font-bold text-white">Chats</h1>
-              <button
-                onClick={() => router.push("/conversations/new")}
-                className="rounded bg-dc-brand p-2 text-white transition-colors hover:bg-dc-brand-hover"
-                title="New conversation"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                <NotificationWarning />
+                <button
+                  onClick={() => router.push("/conversations/new")}
+                  className="rounded bg-dc-brand p-2 text-white transition-colors hover:bg-dc-brand-hover"
+                  title="New conversation"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto bg-dc-sidebar">

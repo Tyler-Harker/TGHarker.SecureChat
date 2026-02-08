@@ -7,6 +7,7 @@ import SplashScreen from "@/components/SplashScreen";
 import AuthGuard from "@/components/AuthGuard";
 import NotificationSettings from "@/components/NotificationSettings";
 import { useUserEvents } from "@/contexts/UserEventsContext";
+import NotificationWarning from "@/components/NotificationWarning";
 
 function SettingsContent() {
   const router = useRouter();
@@ -80,13 +81,17 @@ function SettingsContent() {
             </svg>
           </button>
           <h1 className="text-lg font-semibold text-white">Settings</h1>
+          <div className="ml-auto">
+            <NotificationWarning />
+          </div>
         </div>
       </header>
 
       {/* Header - Mobile */}
       <header className="flex border-b border-dc-header-border bg-dc-sidebar md:hidden">
-        <div className="flex w-full items-center gap-4 px-4 py-4">
+        <div className="flex w-full items-center justify-between px-4 py-4">
           <h1 className="text-xl font-bold text-white">Settings</h1>
+          <NotificationWarning />
         </div>
       </header>
 

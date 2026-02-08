@@ -19,8 +19,6 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [newContactId, setNewContactId] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingNickname, setEditingNickname] = useState<string | null>(null);
   const [nicknameValue, setNicknameValue] = useState("");
@@ -54,24 +52,6 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
       setError("Failed to load contacts");
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleAddContact = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newContactId.trim() || isAdding) return;
-
-    setIsAdding(true);
-    setError(null);
-
-    try {
-      const result = await apiClient.addContact(newContactId.trim());
-      setContacts([...contacts, result.contact]);
-      setNewContactId("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add contact");
-    } finally {
-      setIsAdding(false);
     }
   };
 
@@ -185,29 +165,11 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
         </button>
       </div>
 
-      {/* Add Contact Form */}
-      <div className="border-b border-dc-divider p-4">
-        <form onSubmit={handleAddContact} className="flex gap-2">
-          <input
-            type="text"
-            value={newContactId}
-            onChange={(e) => setNewContactId(e.target.value)}
-            placeholder="Enter user ID to add..."
-            className="min-w-0 flex-1 rounded border border-dc-input-border bg-dc-chat-input px-3 py-2 text-sm text-dc-text-primary placeholder-dc-text-muted focus:border-dc-brand focus:outline-none focus:ring-1 focus:ring-dc-brand"
-            disabled={isAdding}
-          />
-          <button
-            type="submit"
-            disabled={!newContactId.trim() || isAdding}
-            className="flex-shrink-0 rounded bg-dc-brand px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-dc-brand-hover disabled:opacity-50"
-          >
-            {isAdding ? "Adding..." : "Add"}
-          </button>
-        </form>
-        {error && (
-          <p className="mt-2 text-sm text-dc-danger">{error}</p>
-        )}
-      </div>
+      {error && (
+        <div className="border-b border-dc-divider px-4 py-2">
+          <p className="text-sm text-dc-danger">{error}</p>
+        </div>
+      )}
 
       {/* Search */}
       <div className="border-b border-dc-divider p-4">

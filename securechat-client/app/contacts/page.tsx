@@ -11,6 +11,7 @@ import AuthGuard from "@/components/AuthGuard";
 import ContactPickerModal from "@/components/ContactPickerModal";
 import InviteGenerator from "@/components/InviteGenerator";
 import { useUserEvents } from "@/contexts/UserEventsContext";
+import NotificationWarning from "@/components/NotificationWarning";
 
 type TabView = "chats" | "contacts";
 
@@ -129,6 +130,7 @@ function ContactsContent() {
             <span className="text-sm text-dc-text-secondary">
               {user?.email || user?.name}
             </span>
+            <NotificationWarning />
             <button
               onClick={() => router.push("/settings")}
               className="rounded p-2 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-text-primary"
@@ -238,6 +240,7 @@ function ContactsContent() {
           <>
             <div className="flex items-center justify-between border-b border-dc-header-border bg-dc-sidebar p-4">
               <h1 className="text-xl font-bold text-white">Contacts</h1>
+              <NotificationWarning />
             </div>
 
             <div className="flex-1 overflow-y-auto bg-dc-sidebar">

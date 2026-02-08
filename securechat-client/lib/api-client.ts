@@ -243,13 +243,6 @@ export class ApiClient {
     return this.fetch<Contact[]>("/api/users/me/contacts");
   }
 
-  async addContact(contactUserId: string): Promise<{ message: string; contact: Contact }> {
-    return this.fetch<{ message: string; contact: Contact }>(
-      `/api/users/me/contacts/${encodeURIComponent(contactUserId)}`,
-      { method: "POST" }
-    );
-  }
-
   async removeContact(contactUserId: string): Promise<{ message: string }> {
     return this.fetch<{ message: string }>(
       `/api/users/me/contacts/${encodeURIComponent(contactUserId)}`,
