@@ -65,3 +65,10 @@ body {
     padding-bottom: max(env(safe-area-inset-bottom), 0px);
   }
 }
+
+/* Use dynamic viewport height so the layout resizes when the virtual keyboard opens on mobile.
+   Falls back to vh for browsers that don't support dvh. */
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+}

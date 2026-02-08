@@ -91,7 +91,7 @@ function ContactsContent() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-dc-chat-bg">
+    <div className="flex h-dvh flex-col bg-dc-chat-bg">
       {/* Desktop Top Navigation */}
       <div className="hidden border-b border-dc-header-border bg-dc-sidebar md:block">
         <div className="flex items-center justify-between px-6">

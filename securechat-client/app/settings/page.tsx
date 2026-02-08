@@ -67,7 +67,7 @@ function SettingsContent() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-dc-chat-bg">
+    <div className="flex h-dvh flex-col bg-dc-chat-bg">
       {/* Header - Desktop */}
       <header className="hidden border-b border-dc-header-border bg-dc-header shadow-sm md:block">
         <div className="mx-auto flex max-w-2xl items-center gap-4 px-4 py-3">
