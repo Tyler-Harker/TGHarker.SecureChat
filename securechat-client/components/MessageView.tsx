@@ -11,7 +11,6 @@ import { groupMessages, formatMessageTimestamp } from "@/lib/message-grouping";
 
 interface MessageInputFormProps {
   onSend: (text: string, image: File | null) => Promise<void>;
-  isSending: boolean;
   conversationTitle: string;
   isDm: boolean;
 }
@@ -21,8 +20,9 @@ interface MessageInputFormHandle {
 }
 
 const MessageInputForm = forwardRef<MessageInputFormHandle, MessageInputFormProps>(
-  function MessageInputForm({ onSend, isSending, conversationTitle, isDm }, ref) {
+  function MessageInputForm({ onSend, conversationTitle, isDm }, ref) {
     const [newMessage, setNewMessage] = useState("");
+    const [isSending, setIsSending] = useState(false);
     const [pendingImage, setPendingImage] = useState<File | null>(null);
     const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
     const [showCamera, setShowCamera] = useState(false);
@@ -65,7 +65,12 @@ const MessageInputForm = forwardRef<MessageInputFormHandle, MessageInputFormProp
         textareaRef.current.style.height = "auto";
       }
       cancelImageSelection();
-      await onSend(text, image);
+      setIsSending(true);
+      try {
+        await onSend(text, image);
+      } finally {
+        setIsSending(false);
+      }
       textareaRef.current?.focus();
     };
 
@@ -667,41 +672,33 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   };
 
   const handleSendMessage = useCallback(async (text: string, image: File | null) => {
-    setIsSending(true);
-    try {
-      let attachmentId: string | undefined;
+    let attachmentId: string | undefined;
 
-      if (image) {
-        const attachment = await apiClient.uploadAttachment(conversationId, image);
-        attachmentId = attachment.attachmentId;
-      }
-
-      const messageText = text || (attachmentId ? "" : "");
-      const encoder = new TextEncoder();
-      const messageBytes = encoder.encode(messageText);
-      const ciphertext = uint8ArrayToBase64(messageBytes);
-      const nonce = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(12)));
-      const authTag = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(16)));
-
-      const sentMessage = await apiClient.postMessage(conversationId, {
-        attachmentId,
-        encryptedContent: {
-          ciphertext,
-          nonce,
-          authTag,
-          keyVersion: 1,
-        },
-      });
-
-      setMessages((prev) => [...prev, sentMessage]);
-      setTimeout(() => scrollToBottom(), 0);
-      onMessageSent?.(conversationId);
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      alert("Failed to send message");
-    } finally {
-      setIsSending(false);
+    if (image) {
+      const attachment = await apiClient.uploadAttachment(conversationId, image);
+      attachmentId = attachment.attachmentId;
     }
+
+    const messageText = text || (attachmentId ? "" : "");
+    const encoder = new TextEncoder();
+    const messageBytes = encoder.encode(messageText);
+    const ciphertext = uint8ArrayToBase64(messageBytes);
+    const nonce = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(12)));
+    const authTag = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(16)));
+
+    const sentMessage = await apiClient.postMessage(conversationId, {
+      attachmentId,
+      encryptedContent: {
+        ciphertext,
+        nonce,
+        authTag,
+        keyVersion: 1,
+      },
+    });
+
+    setMessages((prev) => [...prev, sentMessage]);
+    setTimeout(() => scrollToBottom(), 0);
+    onMessageSent?.(conversationId);
   }, [conversationId, scrollToBottom, onMessageSent]);
 
   const handleSendThreadMessage = async (e: React.FormEvent) => {
@@ -1272,7 +1269,6 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         <MessageInputForm
           ref={messageInputRef}
           onSend={handleSendMessage}
-          isSending={isSending}
           conversationTitle={getConversationTitle()}
           isDm={!!isDm}
         />
