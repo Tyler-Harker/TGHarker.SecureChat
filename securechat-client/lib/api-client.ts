@@ -19,6 +19,7 @@ export interface UserRegistration {
 }
 
 export type RetentionPeriod = 24 | 72 | 168 | 720;
+export type ConversationMode = "Server" | "PeerToPeer";
 
 export const RETENTION_LABELS: Record<RetentionPeriod, string> = {
   24: "24 hours",
@@ -37,6 +38,7 @@ export interface Conversation {
   currentKeyVersion: number;
   retentionPolicy: RetentionPeriod;
   name?: string | null;
+  mode?: ConversationMode;
 }
 
 export interface Message {
@@ -374,6 +376,41 @@ export class ApiClient {
     return this.fetch<{ message: string }>(`/api/conversations/${conversationId}`, {
       method: "DELETE",
     });
+  }
+
+  async setConversationMode(
+    conversationId: string,
+    mode: ConversationMode
+  ): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/conversations/${conversationId}/mode`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ mode: mode === "PeerToPeer" ? 1 : 0 }),
+      }
+    );
+  }
+
+  async relaySignal(
+    conversationId: string,
+    signalData: string
+  ): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/conversations/${conversationId}/signal`,
+      {
+        method: "POST",
+        body: JSON.stringify({ signalData }),
+      }
+    );
+  }
+
+  async announcePresence(
+    conversationId: string
+  ): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/conversations/${conversationId}/presence`,
+      { method: "POST" }
+    );
   }
 
   async addParticipant(

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiClient, type Message, type Conversation, type Contact, type ContactRequest, type FetchedAttachment, RETENTION_LABELS } from "@/lib/api-client";
+import { apiClient, type Message, type Conversation, type Contact, type ContactRequest, type FetchedAttachment, type ConversationMode, RETENTION_LABELS } from "@/lib/api-client";
+import { P2PManager, type PeerConnectionState, type P2PMessage, type P2PManagerEvent } from "@/lib/p2p-manager";
+import { P2PMessageQueue } from "@/lib/p2p-message-queue";
 import { base64ToUint8Array, uint8ArrayToBase64 } from "@/lib/crypto";
 import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
 import UserAvatar, { getAvatarColor } from "./UserAvatar";
@@ -206,6 +208,13 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [peerStates, setPeerStates] = useState<Map<string, PeerConnectionState>>(new Map());
+  const [p2pConnectionError, setP2pConnectionError] = useState<string | null>(null);
+  const [userOptedIntoP2P, setUserOptedIntoP2P] = useState(false);
+  const [showP2PJoinModal, setShowP2PJoinModal] = useState(false);
+  const [showParticipantsList, setShowParticipantsList] = useState(false);
+  const p2pManagerRef = useRef<P2PManager | null>(null);
+  const p2pQueueRef = useRef<P2PMessageQueue>(new P2PMessageQueue());
   const messageInputRef = useRef<MessageInputFormHandle>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const threadTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -219,6 +228,15 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const markedAsReadRef = useRef<Set<string>>(new Set());
   const activeThreadRef = useRef<Message | null>(null);
   const PAGE_SIZE = 50;
+
+  const isP2PMode = conversation?.mode === "PeerToPeer";
+
+  const scrollToBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
 
   useEffect(() => {
     isInitialLoadRef.current = true;
@@ -376,22 +394,53 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         setThreadReplies([]);
         setThreadMessage("");
       }
+    } else if (data.type === "webrtc_signal") {
+      if (data.senderId !== user?.sub && p2pManagerRef.current) {
+        p2pManagerRef.current.handleSignal(
+          data.senderId as string,
+          data.signal as string
+        );
+      }
+    } else if (data.type === "conversation_mode_changed") {
+      const mode = data.mode as ConversationMode;
+      setConversation((prev) => prev ? { ...prev, mode } : prev);
+
+      // If switching to P2P mode and user hasn't opted in yet, show join modal
+      if (mode === "PeerToPeer" && !userOptedIntoP2P) {
+        setShowP2PJoinModal(true);
+      }
+
+      // If switching back to Server mode, reset P2P state
+      if (mode === "Server") {
+        setUserOptedIntoP2P(false);
+        setShowP2PJoinModal(false);
+      }
     }
   }, [conversationId, user?.sub, onUnreadActivity, onDelete, onBack, onConversationCreated]);
 
   const refetchData = useCallback(async () => {
     try {
-      const [fetchedMessages, conversationData, contactsData] = await Promise.all([
-        apiClient.getMessages(conversationId, 0, PAGE_SIZE),
+      // Fetch conversation first to check mode
+      const [conversationData, contactsData] = await Promise.all([
         apiClient.getConversation(conversationId),
         apiClient.getMyContacts(),
       ]);
-      setMessages(fetchedMessages);
+
       setConversation(conversationData);
       setContacts(contactsData);
-      setHasMoreMessages(fetchedMessages.length >= PAGE_SIZE);
 
-      if (activeThreadRef.current) {
+      // Only fetch messages if not in P2P mode
+      if (conversationData.mode === "PeerToPeer") {
+        setMessages([]);
+        setHasMoreMessages(false);
+      } else {
+        const fetchedMessages = await apiClient.getMessages(conversationId, 0, PAGE_SIZE);
+        setMessages(fetchedMessages);
+        setHasMoreMessages(fetchedMessages.length >= PAGE_SIZE);
+      }
+
+      // Thread replies only available in Server mode
+      if (activeThreadRef.current && conversationData.mode !== "PeerToPeer") {
         const replies = await apiClient.getMessageReplies(conversationId, activeThreadRef.current.messageId);
         setThreadReplies(replies);
       }
@@ -464,6 +513,124 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     };
   }, [conversationId, accessToken, handleSseEvent, refetchData]);
 
+  // P2P Manager lifecycle
+  useEffect(() => {
+    if (!isP2PMode || !user?.sub || !conversation || !userOptedIntoP2P) {
+      // Clean up if we leave P2P mode or user hasn't opted in
+      if (p2pManagerRef.current) {
+        p2pManagerRef.current.destroy();
+        p2pManagerRef.current = null;
+      }
+      setPeerStates(new Map());
+      setP2pConnectionError(null);
+      return;
+    }
+
+    const otherParticipants = conversation.participantUserIds.filter(
+      (id) => id !== user.sub
+    );
+
+    const manager = new P2PManager(conversationId, user.sub, otherParticipants);
+    p2pManagerRef.current = manager;
+
+    const unsubscribe = manager.on(async (event: P2PManagerEvent) => {
+      if (event.type === "connection_state_changed") {
+        setPeerStates(manager.getAllPeerStates());
+
+        // Check if any peer failed
+        const states = manager.getAllPeerStates();
+        const anyFailed = Array.from(states.values()).some((s) => s === "failed");
+        setP2pConnectionError(
+          anyFailed ? "Direct connection to one or more peers failed." : null
+        );
+
+        // Drain queue when peer connects
+        if (event.data.state === "connected") {
+          const queue = p2pQueueRef.current;
+          const pending = await queue.getForRecipient(conversationId, event.peerId);
+          for (const qm of pending) {
+            manager.sendToPeer(event.peerId, qm.message);
+          }
+        }
+      } else if (event.type === "message_received") {
+        if (event.data.messageType === "ack") {
+          // Dequeue acked message
+          const queue = p2pQueueRef.current;
+          await queue.dequeue(
+            event.data.originalMessageId as string,
+            event.peerId
+          );
+        } else if (event.data.messageType === "message") {
+          // Received a P2P message
+          const msg: Message = {
+            messageId: event.data.messageId as string,
+            conversationId,
+            senderId: event.data.senderId as string,
+            ciphertext: btoa(event.data.text as string || ""),
+            nonce: "",
+            authTag: "",
+            timestamp: event.data.timestamp as string,
+            keyRotationVersion: 1,
+          };
+          setMessages((prev) => {
+            if (prev.some((m) => m.messageId === msg.messageId)) return prev;
+            return [...prev, msg];
+          });
+          setTimeout(() => scrollToBottom(), 0);
+        }
+      } else if (event.type === "read_receipt") {
+        const msgId = event.data.messageId as string;
+        const readerId = event.peerId;
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.messageId === msgId) {
+              const readBy = m.readBy || [];
+              if (!readBy.includes(readerId)) {
+                return { ...m, readBy: [...readBy, readerId] };
+              }
+            }
+            return m;
+          })
+        );
+      } else if (event.type === "reaction") {
+        const msgId = event.data.messageId as string;
+        const emoji = event.data.emoji as string;
+        const added = event.data.added as boolean;
+        const reacterId = event.peerId;
+
+        const updateReaction = (msgs: Message[]) =>
+          msgs.map((m) => {
+            if (m.messageId !== msgId) return m;
+            const reactions = { ...(m.reactions || {}) };
+            const users = reactions[emoji] || [];
+            if (added && !users.includes(reacterId)) {
+              reactions[emoji] = [...users, reacterId];
+            } else if (!added) {
+              const filtered = users.filter((id) => id !== reacterId);
+              if (filtered.length === 0) delete reactions[emoji];
+              else reactions[emoji] = filtered;
+            }
+            return { ...m, reactions };
+          });
+
+        setMessages(updateReaction);
+        setThreadReplies(updateReaction);
+        setActiveThread((prev) => (prev ? updateReaction([prev])[0] : null));
+      }
+    });
+
+    manager.initialize().catch((err) => {
+      console.error("Failed to initialize P2P manager:", err);
+      setP2pConnectionError("Failed to initialize peer connections.");
+    });
+
+    return () => {
+      unsubscribe();
+      manager.destroy();
+      p2pManagerRef.current = null;
+    };
+  }, [isP2PMode, conversationId, user?.sub, conversation?.participantUserIds?.join(","), scrollToBottom, userOptedIntoP2P]);
+
   useEffect(() => {
     if (!user?.sub || messages.length === 0) return;
 
@@ -476,10 +643,23 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
             if (messageId && senderId && senderId !== user.sub && !markedAsReadRef.current.has(messageId)) {
               markedAsReadRef.current.add(messageId);
-              apiClient.markMessageAsRead(conversationId, messageId).catch((err) => {
-                console.error("Failed to mark message as read:", err);
-                markedAsReadRef.current.delete(messageId);
-              });
+
+              if (isP2PMode && userOptedIntoP2P && p2pManagerRef.current) {
+                // Send read receipt over DataChannel
+                p2pManagerRef.current.sendMessage({
+                  type: "read_receipt",
+                  id: crypto.randomUUID(),
+                  senderId: user.sub,
+                  conversationId,
+                  timestamp: new Date().toISOString(),
+                  payload: { messageId },
+                });
+              } else {
+                apiClient.markMessageAsRead(conversationId, messageId).catch((err) => {
+                  console.error("Failed to mark message as read:", err);
+                  markedAsReadRef.current.delete(messageId);
+                });
+              }
 
               observer.unobserve(entry.target);
             }
@@ -498,20 +678,75 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     return () => {
       observer.disconnect();
     };
-  }, [messages, conversationId, user?.sub]);
+  }, [messages, conversationId, user?.sub, isP2PMode, userOptedIntoP2P]);
+
+  // Auto-focus input when typing anywhere in the chat
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't interfere if any modal is open
+      if (showDeleteConfirm || showP2PJoinModal || showParticipantsList || isRenaming) {
+        return;
+      }
+
+      // Don't interfere if already typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+        return;
+      }
+
+      // Don't interfere with browser shortcuts (Ctrl/Cmd/Alt + key)
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
+      // Don't interfere with special keys
+      const specialKeys = [
+        "Escape",
+        "Tab",
+        "Enter",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End",
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+      ];
+      if (specialKeys.includes(e.key)) {
+        return;
+      }
+
+      // If it's a printable character, focus the input
+      if (e.key.length === 1) {
+        messageInputRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showDeleteConfirm, showP2PJoinModal, showParticipantsList, isRenaming]);
 
   const loadMessages = async () => {
     setIsLoading(true);
     try {
-      const [fetchedMessages, conversationData, contactsData] = await Promise.all([
-        apiClient.getMessages(conversationId, 0, PAGE_SIZE),
+      const [conversationData, contactsData] = await Promise.all([
         apiClient.getConversation(conversationId),
         apiClient.getMyContacts(),
       ]);
-      setMessages(fetchedMessages);
       setConversation(conversationData);
       setContacts(contactsData);
-      setHasMoreMessages(fetchedMessages.length >= PAGE_SIZE);
+
+      if (conversationData.mode === "PeerToPeer") {
+        // P2P mode: no server-stored messages to fetch
+        setMessages([]);
+        setHasMoreMessages(false);
+      } else {
+        const fetchedMessages = await apiClient.getMessages(conversationId, 0, PAGE_SIZE);
+        setMessages(fetchedMessages);
+        setHasMoreMessages(fetchedMessages.length >= PAGE_SIZE);
+      }
     } catch (error) {
       console.error("Failed to load messages:", error);
     } finally {
@@ -582,13 +817,6 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   };
 
   const isDm = conversation && conversation.participantUserIds.length <= 2;
-
-  const scrollToBottom = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
-  }, []);
 
   const scrollThreadToBottom = useCallback(() => {
     const el = threadEndRef.current;
@@ -672,34 +900,87 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   };
 
   const handleSendMessage = useCallback(async (text: string, image: File | null) => {
-    let attachmentId: string | undefined;
+    if (isP2PMode && userOptedIntoP2P && p2pManagerRef.current) {
+      // P2P mode: send via DataChannel
+      const messageId = crypto.randomUUID();
+      const p2pMsg: P2PMessage = {
+        type: "message",
+        id: messageId,
+        senderId: user!.sub,
+        conversationId,
+        timestamp: new Date().toISOString(),
+        payload: { text: text || "" },
+      };
 
-    if (image) {
-      const attachment = await apiClient.uploadAttachment(conversationId, image);
-      attachmentId = attachment.attachmentId;
-    }
+      p2pManagerRef.current.sendMessage(p2pMsg);
 
-    const messageText = text || (attachmentId ? "" : "");
-    const encoder = new TextEncoder();
-    const messageBytes = encoder.encode(messageText);
-    const ciphertext = uint8ArrayToBase64(messageBytes);
-    const nonce = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(12)));
-    const authTag = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(16)));
+      // Add to local messages immediately (optimistic)
+      const encoder = new TextEncoder();
+      const messageBytes = encoder.encode(text || "");
+      const ciphertext = uint8ArrayToBase64(messageBytes);
 
-    const sentMessage = await apiClient.postMessage(conversationId, {
-      attachmentId,
-      encryptedContent: {
+      const localMsg: Message = {
+        messageId,
+        conversationId,
+        senderId: user!.sub,
         ciphertext,
-        nonce,
-        authTag,
-        keyVersion: 1,
-      },
-    });
+        nonce: "",
+        authTag: "",
+        timestamp: p2pMsg.timestamp,
+        keyRotationVersion: 1,
+      };
+      setMessages((prev) => [...prev, localMsg]);
+      setTimeout(() => scrollToBottom(), 0);
 
-    setMessages((prev) => [...prev, sentMessage]);
-    setTimeout(() => scrollToBottom(), 0);
-    onMessageSent?.(conversationId);
-  }, [conversationId, scrollToBottom, onMessageSent]);
+      // Queue for offline peers
+      const queue = p2pQueueRef.current;
+      const otherParticipants = conversation!.participantUserIds.filter(
+        (id) => id !== user!.sub
+      );
+      for (const peerId of otherParticipants) {
+        if (p2pManagerRef.current.getPeerState(peerId) !== "connected") {
+          await queue.enqueue(conversationId, peerId, p2pMsg);
+        }
+      }
+
+      onMessageSent?.(conversationId);
+
+      // Auto-focus the input after sending
+      setTimeout(() => messageInputRef.current?.focus(), 0);
+    } else {
+      // Server mode: existing logic
+      let attachmentId: string | undefined;
+
+      if (image) {
+        const attachment = await apiClient.uploadAttachment(conversationId, image);
+        attachmentId = attachment.attachmentId;
+      }
+
+      const messageText = text || (attachmentId ? "" : "");
+      const encoder = new TextEncoder();
+      const messageBytes = encoder.encode(messageText);
+      const ciphertext = uint8ArrayToBase64(messageBytes);
+      const nonce = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(12)));
+      const authTag = uint8ArrayToBase64(crypto.getRandomValues(new Uint8Array(16)));
+
+      const sentMessage = await apiClient.postMessage(conversationId, {
+        attachmentId,
+        encryptedContent: {
+          ciphertext,
+          nonce,
+          authTag,
+          keyVersion: 1,
+        },
+      });
+
+      setMessages((prev) => [...prev, sentMessage]);
+      setTimeout(() => scrollToBottom(), 0);
+      onMessageSent?.(conversationId);
+
+      // Auto-focus the input after sending
+      setTimeout(() => messageInputRef.current?.focus(), 0);
+    }
+  }, [conversationId, scrollToBottom, onMessageSent, isP2PMode, userOptedIntoP2P, user?.sub, conversation?.participantUserIds]);
 
   const handleSendThreadMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -812,10 +1093,26 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     setReactionPickerMessageId(null);
     messageInputRef.current?.focus();
 
-    try {
-      await apiClient.toggleReaction(conversationId, messageId, emoji);
-    } catch (error) {
-      console.error("Failed to toggle reaction:", error);
+    if (isP2PMode && userOptedIntoP2P && p2pManagerRef.current) {
+      // Determine if adding or removing
+      const msg = messages.find((m) => m.messageId === messageId);
+      const currentUsers = msg?.reactions?.[emoji] || [];
+      const added = !currentUsers.includes(userId!);
+
+      p2pManagerRef.current.sendMessage({
+        type: "reaction",
+        id: crypto.randomUUID(),
+        senderId: userId!,
+        conversationId,
+        timestamp: new Date().toISOString(),
+        payload: { messageId, emoji, added },
+      });
+    } else {
+      try {
+        await apiClient.toggleReaction(conversationId, messageId, emoji);
+      } catch (error) {
+        console.error("Failed to toggle reaction:", error);
+      }
     }
   };
 
@@ -1019,6 +1316,73 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
               )}
             </p>
           </div>
+          {/* P2P Mode Toggle */}
+          <button
+            onClick={async () => {
+              const newMode: ConversationMode = isP2PMode ? "Server" : "PeerToPeer";
+              if (newMode === "PeerToPeer" && conversation && conversation.participantUserIds.length > 8) {
+                alert("P2P mode supports up to 8 participants.");
+                return;
+              }
+              try {
+                await apiClient.setConversationMode(conversationId, newMode);
+                setConversation((prev) => prev ? { ...prev, mode: newMode } : prev);
+
+                // If switching to P2P, automatically opt in the initiator
+                if (newMode === "PeerToPeer") {
+                  setUserOptedIntoP2P(true);
+                } else {
+                  // If switching back to Server mode, reset P2P state
+                  setUserOptedIntoP2P(false);
+                }
+              } catch (err) {
+                console.error("Failed to set mode:", err);
+              }
+            }}
+            className={`rounded p-1.5 transition-colors ${isP2PMode ? "text-dc-brand hover:text-dc-brand-hover" : "text-dc-text-muted hover:text-dc-text-primary"}`}
+            title={isP2PMode ? "Switch to server mode" : "Switch to P2P mode"}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+          </button>
+          {/* P2P Presence Indicators */}
+          {isP2PMode && conversation && (
+            <div className="flex items-center gap-1">
+              {conversation.participantUserIds
+                .filter((id) => id !== user?.sub)
+                .map((id) => {
+                  const state = peerStates.get(id) || "disconnected";
+                  const color =
+                    state === "connected"
+                      ? "bg-green-500"
+                      : state === "connecting"
+                        ? "bg-yellow-500"
+                        : state === "failed"
+                          ? "bg-red-500"
+                          : "bg-gray-500";
+                  return (
+                    <span
+                      key={id}
+                      className={`h-2.5 w-2.5 rounded-full ${color}`}
+                      title={`${getDisplayName(id)}: ${state}`}
+                    />
+                  );
+                })}
+            </div>
+          )}
+          {/* P2P Participants List Button */}
+          {isP2PMode && (
+            <button
+              onClick={() => setShowParticipantsList(true)}
+              className="rounded p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary"
+              title="View participants"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setShowDeleteConfirm(true)}
             className="rounded p-1.5 text-dc-text-muted transition-colors hover:text-dc-danger"
@@ -1029,6 +1393,52 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
             </svg>
           </button>
         </div>
+
+        {/* P2P Connection Error Banner */}
+        {isP2PMode && p2pConnectionError && (
+          <div className="shrink-0 border-b border-dc-divider bg-dc-banner-warning-bg p-3">
+            <div className="flex items-center gap-3">
+              <svg className="h-5 w-5 flex-shrink-0 text-dc-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p className="flex-1 text-sm text-dc-text-primary">{p2pConnectionError}</p>
+              <button
+                onClick={async () => {
+                  try {
+                    await apiClient.setConversationMode(conversationId, "Server");
+                    setConversation((prev) => prev ? { ...prev, mode: "Server" } : prev);
+                  } catch (err) {
+                    console.error("Failed to switch mode:", err);
+                  }
+                }}
+                className="rounded bg-dc-brand px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-dc-brand-hover"
+              >
+                Switch to Server Mode
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* P2P Mode Indicator */}
+        {isP2PMode && !p2pConnectionError && (
+          <div className="shrink-0 border-b border-dc-divider bg-dc-brand/10 px-4 py-1.5">
+            {userOptedIntoP2P ? (
+              <p className="text-xs text-dc-brand">
+                ✓ P2P mode active — messages are exchanged directly between peers
+              </p>
+            ) : (
+              <p className="text-xs text-yellow-600">
+                ⚠ Conversation is in P2P mode, but you're using server mode.
+                <button
+                  onClick={() => setShowP2PJoinModal(true)}
+                  className="ml-1 underline hover:text-yellow-700"
+                >
+                  Join P2P mode
+                </button>
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Contact Request Banners */}
         {(() => {
@@ -1479,6 +1889,142 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
             messageInputRef.current?.focus();
           }}
         />
+      )}
+
+      {/* P2P Join Modal */}
+      {showP2PJoinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-lg bg-dc-modal-bg p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-white">
+              Join Peer-to-Peer Mode?
+            </h3>
+            <p className="mb-4 text-dc-text-secondary">
+              This conversation has been switched to P2P mode. Messages will be exchanged directly between peers via WebRTC.
+            </p>
+            <ul className="mb-6 space-y-2 text-sm text-dc-text-secondary">
+              <li>✓ End-to-end encrypted direct connections</li>
+              <li>✓ No server storage of messages</li>
+              <li>⚠ Both peers must be online to exchange messages</li>
+              <li>⚠ P2P history is not persisted on the server</li>
+            </ul>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowP2PJoinModal(false);
+                }}
+                className="flex-1 rounded bg-dc-modal-input px-4 py-2.5 font-medium text-dc-text-primary transition-colors hover:bg-dc-modal-input-hover"
+              >
+                Stay in Server Mode
+              </button>
+              <button
+                onClick={() => {
+                  setUserOptedIntoP2P(true);
+                  setShowP2PJoinModal(false);
+                }}
+                className="flex-1 rounded bg-dc-brand px-4 py-2.5 font-medium text-white transition-colors hover:bg-dc-brand-hover"
+              >
+                Join P2P Mode
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Participants List Modal */}
+      {showParticipantsList && isP2PMode && conversation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-lg bg-dc-modal-bg p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-white">
+              P2P Participants
+            </h3>
+            <div className="mb-6 space-y-3">
+              {conversation.participantUserIds.map((id) => {
+                const isMe = id === user?.sub;
+                const state = isMe ? "connected" : (peerStates.get(id) || "disconnected");
+                const displayName = getDisplayName(id);
+
+                let statusText = "";
+                let statusColor = "";
+                let statusIcon = "";
+
+                if (isMe) {
+                  statusText = userOptedIntoP2P ? "You (Active in P2P)" : "You (Server Mode)";
+                  statusColor = userOptedIntoP2P ? "text-green-500" : "text-gray-400";
+                  statusIcon = "●";
+                } else if (!userOptedIntoP2P) {
+                  statusText = "Unknown (You're in Server Mode)";
+                  statusColor = "text-gray-400";
+                  statusIcon = "○";
+                } else {
+                  switch (state) {
+                    case "connected":
+                      statusText = "Active in P2P";
+                      statusColor = "text-green-500";
+                      statusIcon = "●";
+                      break;
+                    case "connecting":
+                      statusText = "Connecting...";
+                      statusColor = "text-yellow-500";
+                      statusIcon = "◐";
+                      break;
+                    case "failed":
+                      statusText = "Connection Failed";
+                      statusColor = "text-red-500";
+                      statusIcon = "✕";
+                      break;
+                    default:
+                      statusText = "Disconnected";
+                      statusColor = "text-gray-400";
+                      statusIcon = "○";
+                  }
+                }
+
+                return (
+                  <div key={id} className="flex items-center justify-between rounded-lg bg-dc-modal-input p-3">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar userId={id} displayName={displayName} size="sm" />
+                      <div>
+                        <p className="font-medium text-dc-text-primary">{displayName}</p>
+                        <p className={`text-sm ${statusColor}`}>
+                          <span className="mr-1">{statusIcon}</span>
+                          {statusText}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {userOptedIntoP2P && (
+              <button
+                onClick={async () => {
+                  setUserOptedIntoP2P(false);
+                  setShowParticipantsList(false);
+                }}
+                className="mb-3 w-full rounded bg-dc-modal-input px-4 py-2.5 font-medium text-dc-text-primary transition-colors hover:bg-dc-modal-input-hover"
+              >
+                Leave P2P Mode
+              </button>
+            )}
+            {!userOptedIntoP2P && (
+              <button
+                onClick={() => {
+                  setUserOptedIntoP2P(true);
+                  setShowParticipantsList(false);
+                }}
+                className="mb-3 w-full rounded bg-dc-brand px-4 py-2.5 font-medium text-white transition-colors hover:bg-dc-brand-hover"
+              >
+                Join P2P Mode
+              </button>
+            )}
+            <button
+              onClick={() => setShowParticipantsList(false)}
+              className="w-full rounded bg-dc-modal-input px-4 py-2.5 font-medium text-dc-text-primary transition-colors hover:bg-dc-modal-input-hover"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Dialog */}

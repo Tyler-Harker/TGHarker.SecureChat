@@ -114,4 +114,23 @@ public interface IConversationGrain : IGrainWithGuidKey
     /// This will delete the conversation for all participants.
     /// </summary>
     Task DeleteConversationAsync();
+
+    /// <summary>
+    /// Sets the conversation mode (Server or PeerToPeer).
+    /// Requires: Caller must be a participant.
+    /// </summary>
+    Task SetModeAsync(ConversationMode mode);
+
+    /// <summary>
+    /// Gets the current conversation mode.
+    /// Requires: Caller must be a participant.
+    /// </summary>
+    Task<ConversationMode> GetModeAsync();
+
+    /// <summary>
+    /// Relays a WebRTC signaling message to all participants via the conversation stream.
+    /// Used for SDP offers/answers and ICE candidates when in P2P mode.
+    /// Requires: Caller must be a participant.
+    /// </summary>
+    Task RelaySignalingAsync(string senderUserId, string signalingJson);
 }

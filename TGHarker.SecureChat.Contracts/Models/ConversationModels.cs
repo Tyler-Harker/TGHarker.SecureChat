@@ -12,6 +12,13 @@ public enum RetentionPeriod
 }
 
 [GenerateSerializer]
+public enum ConversationMode
+{
+    Server = 0,
+    PeerToPeer = 1
+}
+
+[GenerateSerializer]
 public record ConversationDto(
     Guid ConversationId,
     List<string> ParticipantUserIds,
@@ -21,7 +28,8 @@ public record ConversationDto(
     int MessageCount,
     int CurrentKeyVersion,
     RetentionPeriod RetentionPolicy,
-    string? Name = null
+    string? Name = null,
+    ConversationMode Mode = ConversationMode.Server
 );
 
 [GenerateSerializer]

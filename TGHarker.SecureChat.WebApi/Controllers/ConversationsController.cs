@@ -525,6 +525,77 @@ public class ConversationsController : ControllerBase
     }
 
     /// <summary>
+    /// Set conversation mode (Server or PeerToPeer).
+    /// </summary>
+    [HttpPut("{conversationId}/mode")]
+    public async Task<ActionResult> SetConversationMode(
+        Guid conversationId, [FromBody] SetModeRequest request)
+    {
+        try
+        {
+            RequestContext.Set("UserId", UserId);
+            var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
+            await conversationGrain.SetModeAsync(request.Mode);
+            return Ok(new { message = "Mode updated successfully" });
+        }
+        catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set mode for conversation {ConversationId}", conversationId);
+            return StatusCode(500, new { error = "Failed to set conversation mode" });
+        }
+    }
+
+    /// <summary>
+    /// Relay a WebRTC signaling message (SDP offer/answer, ICE candidate).
+    /// </summary>
+    [HttpPost("{conversationId}/signal")]
+    public async Task<ActionResult> RelaySignal(
+        Guid conversationId, [FromBody] RelaySignalRequest request)
+    {
+        try
+        {
+            RequestContext.Set("UserId", UserId);
+            var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
+            await conversationGrain.RelaySignalingAsync(UserId, request.SignalData);
+            return Ok(new { message = "Signal relayed" });
+        }
+        catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to relay signal for conversation {ConversationId}", conversationId);
+            return StatusCode(500, new { error = "Failed to relay signal" });
+        }
+    }
+
+    /// <summary>
+    /// Announce presence in a P2P conversation (triggers signaling flow).
+    /// </summary>
+    [HttpPost("{conversationId}/presence")]
+    public async Task<ActionResult> AnnouncePresence(Guid conversationId)
+    {
+        try
+        {
+            RequestContext.Set("UserId", UserId);
+            var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
+            var mode = await conversationGrain.GetModeAsync();
+            if (mode != ConversationMode.PeerToPeer)
+                return BadRequest(new { error = "Presence announcement only applies to P2P conversations" });
+
+            await conversationGrain.RelaySignalingAsync(UserId,
+                System.Text.Json.JsonSerializer.Serialize(new { type = "presence_announce" }));
+            return Ok(new { message = "Presence announced" });
+        }
+        catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to announce presence for conversation {ConversationId}", conversationId);
+            return StatusCode(500, new { error = "Failed to announce presence" });
+        }
+    }
+
+    /// <summary>
     /// Delete a conversation and all its messages.
     /// This will delete the conversation for all participants.
     /// </summary>
@@ -562,6 +633,8 @@ public record CreateConversationRequest(
 public record StoreKeyRequest(string UserId, byte[] EncryptedKey, int KeyVersion);
 public record AddParticipantRequest(string UserId);
 public record RenameConversationRequest(string? Name);
+public record SetModeRequest(ConversationMode Mode);
+public record RelaySignalRequest(string SignalData);
 
 /// <summary>
 /// Observer for Orleans Streams that writes events to a channel.

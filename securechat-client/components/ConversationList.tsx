@@ -124,6 +124,11 @@ export default function ConversationList({
               }`}
             >
               {title}
+              {conversation.mode === "PeerToPeer" && (
+                <span className="ml-1.5 inline-block rounded bg-dc-brand/20 px-1 py-0.5 align-middle text-[9px] font-bold leading-none text-dc-brand">
+                  P2P
+                </span>
+              )}
             </span>
             {unread > 0 && (
               <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-dc-brand px-1 text-[10px] font-bold text-white">

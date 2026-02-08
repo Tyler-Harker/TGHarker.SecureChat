@@ -84,4 +84,11 @@ public class ConversationGrainState
     /// </summary>
     [Id(15)]
     public string? Name { get; set; }
+
+    /// <summary>
+    /// Conversation mode: Server (default) or PeerToPeer.
+    /// In P2P mode, messages travel directly between peers via WebRTC DataChannels.
+    /// </summary>
+    [Id(16)]
+    public ConversationMode Mode { get; set; } = ConversationMode.Server;
 }

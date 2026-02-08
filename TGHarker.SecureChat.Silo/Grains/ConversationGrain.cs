@@ -129,7 +129,8 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
             MessageCount: 0,
             CurrentKeyVersion: _state.State.CurrentKeyVersion,
             RetentionPolicy: _state.State.RetentionPolicy,
-            Name: null
+            Name: null,
+            Mode: ConversationMode.Server
         );
 
         var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
@@ -187,7 +188,8 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
             MessageCount: _state.State.MessageCount,
             CurrentKeyVersion: _state.State.CurrentKeyVersion,
             RetentionPolicy: _state.State.RetentionPolicy,
-            Name: _state.State.Name
+            Name: _state.State.Name,
+            Mode: _state.State.Mode
         ));
     }
 
@@ -311,6 +313,9 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
         {
             throw new InvalidOperationException("Conversation not created");
         }
+
+        if (_state.State.Mode == ConversationMode.PeerToPeer)
+            throw new InvalidOperationException("Operation not available in P2P mode. Messages are exchanged directly between peers.");
 
         var callingUserId = GetCallingUserId();
 
@@ -475,6 +480,9 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
             throw new InvalidOperationException("Conversation not created");
         }
 
+        if (_state.State.Mode == ConversationMode.PeerToPeer)
+            throw new InvalidOperationException("Operation not available in P2P mode. Messages are exchanged directly between peers.");
+
         // Paginate from the end (newest first): skip=0 returns most recent messages
         // Messages are returned in chronological order within the batch
         var total = _state.State.MessageIds.Count;
@@ -503,6 +511,9 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
         {
             throw new InvalidOperationException("Conversation not created");
         }
+
+        if (_state.State.Mode == ConversationMode.PeerToPeer)
+            throw new InvalidOperationException("Operation not available in P2P mode. Messages are exchanged directly between peers.");
 
         // Get reply IDs for the parent message
         if (!_state.State.MessageReplies.TryGetValue(parentMessageId, out var replyIds))
@@ -574,6 +585,9 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
             throw new InvalidOperationException("Conversation not created");
         }
 
+        if (_state.State.Mode == ConversationMode.PeerToPeer)
+            throw new InvalidOperationException("Operation not available in P2P mode. Read receipts are exchanged directly between peers.");
+
         // Initialize the set if it doesn't exist
         if (!_state.State.MessageReadReceipts.ContainsKey(messageId))
         {
@@ -637,6 +651,9 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
         {
             throw new InvalidOperationException("Conversation not created");
         }
+
+        if (_state.State.Mode == ConversationMode.PeerToPeer)
+            throw new InvalidOperationException("Operation not available in P2P mode. Reactions are exchanged directly between peers.");
 
         if (!_state.State.MessageReactions.ContainsKey(messageId))
         {
@@ -851,6 +868,84 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
                 _logger.LogError(ex, "Failed to publish conversation_renamed event to user {UserId}", participantId);
             }
         }
+    }
+
+    public async Task SetModeAsync(ConversationMode mode)
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+            throw new InvalidOperationException("Conversation not created");
+
+        _state.State.Mode = mode;
+        await _state.WriteStateAsync();
+
+        _logger.LogInformation("Conversation {ConversationId} mode set to {Mode}",
+            _state.State.ConversationId, mode);
+
+        var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "conversation_mode_changed",
+            conversationId = _state.State.ConversationId.ToString(),
+            mode = mode.ToString()
+        }, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
+
+        if (_eventStream != null)
+            await _eventStream.OnNextAsync(eventJson);
+
+        var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
+        foreach (var participantId in _state.State.ParticipantUserIds)
+        {
+            try
+            {
+                var userStream = streamProvider.GetStream<string>(
+                    StreamId.Create("UserEvents", participantId));
+                await userStream.OnNextAsync(eventJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish mode change to user {UserId}", participantId);
+            }
+        }
+    }
+
+    public Task<ConversationMode> GetModeAsync()
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+            throw new InvalidOperationException("Conversation not created");
+
+        return Task.FromResult(_state.State.Mode);
+    }
+
+    public async Task RelaySignalingAsync(string senderUserId, string signalingJson)
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+            throw new InvalidOperationException("Conversation not created");
+
+        var callingUserId = GetCallingUserId();
+        if (callingUserId != senderUserId)
+            throw new UnauthorizedAccessException("Cannot relay signaling as another user");
+
+        var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "webrtc_signal",
+            senderId = senderUserId,
+            conversationId = _state.State.ConversationId.ToString(),
+            signal = signalingJson
+        }, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
+
+        if (_eventStream != null)
+            await _eventStream.OnNextAsync(eventJson);
     }
 
     public async Task DeleteConversationAsync()
