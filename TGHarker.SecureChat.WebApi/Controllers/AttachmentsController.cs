@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TGHarker.SecureChat.Contracts.Grains;
 using TGHarker.SecureChat.Contracts.Models;
-using TGHarker.SecureChat.Contracts.Services;
 
 namespace TGHarker.SecureChat.WebApi.Controllers;
 
@@ -11,7 +10,6 @@ namespace TGHarker.SecureChat.WebApi.Controllers;
 [Authorize]
 public class AttachmentsController : ControllerBase
 {
-    private readonly IAttachmentStorageService _attachmentStorage;
     private readonly IClusterClient _client;
     private readonly ILogger<AttachmentsController> _logger;
 
@@ -19,11 +17,9 @@ public class AttachmentsController : ControllerBase
         ?? throw new UnauthorizedAccessException("No user ID in token");
 
     public AttachmentsController(
-        IAttachmentStorageService attachmentStorage,
         IClusterClient client,
         ILogger<AttachmentsController> logger)
     {
-        _attachmentStorage = attachmentStorage;
         _client = client;
         _logger = logger;
     }
@@ -54,10 +50,20 @@ public class AttachmentsController : ControllerBase
             if (file == null || file.Length == 0)
                 return BadRequest(new { error = "No file provided" });
 
-            using var stream = file.OpenReadStream();
-            var attachment = await _attachmentStorage.StoreAttachmentAsync(
+            // Read file data into byte array
+            byte[] fileData;
+            using (var memoryStream = new MemoryStream())
+            {
+                await file.CopyToAsync(memoryStream);
+                fileData = memoryStream.ToArray();
+            }
+
+            // Store in AttachmentGrain
+            var attachmentId = Guid.NewGuid();
+            var attachmentGrain = _client.GetGrain<IAttachmentGrain>(attachmentId, conversationId.ToString());
+            var attachment = await attachmentGrain.StoreAsync(
                 conversationId, UserId, fileName, contentType,
-                nonce, authTag, keyVersion, stream);
+                nonce, authTag, keyVersion, fileData);
 
             return Ok(attachment);
         }
@@ -91,11 +97,13 @@ public class AttachmentsController : ControllerBase
             if (!isParticipant)
                 return Forbid();
 
-            var result = await _attachmentStorage.GetAttachmentAsync(conversationId, attachmentId);
+            // Get from AttachmentGrain
+            var attachmentGrain = _client.GetGrain<IAttachmentGrain>(attachmentId, conversationId.ToString());
+            var result = await attachmentGrain.GetAsync();
             if (result == null)
                 return NotFound(new { error = "Attachment not found" });
 
-            var (content, metadata) = result.Value;
+            var (data, metadata) = result.Value;
 
             Response.Headers.Append("X-Encryption-Nonce", metadata.Nonce);
             Response.Headers.Append("X-Encryption-AuthTag", metadata.AuthTag);
@@ -103,7 +111,7 @@ public class AttachmentsController : ControllerBase
             Response.Headers.Append("X-Original-Content-Type", metadata.ContentType);
             Response.Headers.Append("X-Original-FileName", metadata.FileName);
 
-            return File(content, "application/octet-stream");
+            return File(data, "application/octet-stream");
         }
         catch (UnauthorizedAccessException)
         {

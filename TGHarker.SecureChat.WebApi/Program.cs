@@ -1,8 +1,6 @@
 using System.Security.Claims;
-using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using TGHarker.SecureChat.Contracts.Services;
 using TGHarker.SecureChat.WebApi.Filters;
 using TGHarker.SecureChat.WebApi.Middleware;
 using TGHarker.SecureChat.WebApi.Services;
@@ -86,11 +84,6 @@ builder.Services.AddAuthorization();
 // Register notification services for SSE
 builder.Services.AddSingleton<IInviteNotificationService, InviteNotificationService>();
 // ConversationNotificationService is no longer needed - Orleans Streams handle conversation events
-
-// Register blob storage for attachments
-builder.Services.AddSingleton(_ =>
-    new BlobServiceClient(builder.Configuration.GetConnectionString("blobStorage")));
-builder.Services.AddSingleton<IAttachmentStorageService, AttachmentStorageService>();
 
 // Configure Orleans client with user context filter
 builder.UseOrleansClient(clientBuilder =>

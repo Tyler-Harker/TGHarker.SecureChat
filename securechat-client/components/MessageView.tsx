@@ -223,11 +223,12 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const isInitialLoadRef = useRef(true);
+  const shouldAutoScrollOnImageLoadRef = useRef(true);
   const eventSourceRef = useRef<EventSource | null>(null);
   const messageElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const markedAsReadRef = useRef<Set<string>>(new Set());
   const activeThreadRef = useRef<Message | null>(null);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 25;
 
   const isP2PMode = conversation?.mode === "PeerToPeer";
 
@@ -240,6 +241,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
 
   useEffect(() => {
     isInitialLoadRef.current = true;
+    shouldAutoScrollOnImageLoadRef.current = true;
     setHasMoreMessages(true);
     loadMessages();
   }, [conversationId]);
@@ -254,6 +256,11 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         }
       }, 0);
       isInitialLoadRef.current = false;
+
+      // Keep auto-scrolling on image load for 2 seconds to handle lazy-loading images
+      setTimeout(() => {
+        shouldAutoScrollOnImageLoadRef.current = false;
+      }, 2000);
     }
     if (!isLoading && !activeThread) {
       messageInputRef.current?.focus();
@@ -1223,6 +1230,17 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
           alt={attachment.fileName}
           className="my-1 max-h-72 max-w-md cursor-pointer rounded-lg object-contain"
           onClick={() => setFullscreen(true)}
+          onLoad={() => {
+            // Scroll to bottom when image loads
+            const container = messagesContainerRef.current;
+            if (container) {
+              // Always scroll on initial load, or if user is near bottom
+              const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+              if (shouldAutoScrollOnImageLoadRef.current || isNearBottom) {
+                scrollToBottom();
+              }
+            }
+          }}
         />
         {fullscreen && (
           <div
