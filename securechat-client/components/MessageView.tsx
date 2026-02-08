@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, type Message, type Conversation, type Contact, type ContactRequest, type FetchedAttachment, RETENTION_LABELS } from "@/lib/api-client";
 import { base64ToUint8Array, uint8ArrayToBase64 } from "@/lib/crypto";
@@ -8,6 +8,168 @@ import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
 import UserAvatar, { getAvatarColor } from "./UserAvatar";
 import CameraCapture from "./CameraCapture";
 import { groupMessages, formatMessageTimestamp } from "@/lib/message-grouping";
+
+interface MessageInputFormProps {
+  onSend: (text: string, image: File | null) => Promise<void>;
+  isSending: boolean;
+  conversationTitle: string;
+  isDm: boolean;
+}
+
+interface MessageInputFormHandle {
+  focus: () => void;
+}
+
+const MessageInputForm = forwardRef<MessageInputFormHandle, MessageInputFormProps>(
+  function MessageInputForm({ onSend, isSending, conversationTitle, isDm }, ref) {
+    const [newMessage, setNewMessage] = useState("");
+    const [pendingImage, setPendingImage] = useState<File | null>(null);
+    const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
+    const [showCamera, setShowCamera] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useImperativeHandle(ref, () => ({
+      focus: () => textareaRef.current?.focus(),
+    }));
+
+    const cancelImageSelection = () => {
+      if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview);
+      setPendingImage(null);
+      setPendingImagePreview(null);
+    };
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        alert("Only image files are supported.");
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        alert("Image must be under 10 MB.");
+        return;
+      }
+      setPendingImage(file);
+      setPendingImagePreview(URL.createObjectURL(file));
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if ((!newMessage.trim() && !pendingImage) || isSending) return;
+      const text = newMessage.trim();
+      const image = pendingImage;
+      setNewMessage("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+      cancelImageSelection();
+      await onSend(text, image);
+      textareaRef.current?.focus();
+    };
+
+    return (
+      <>
+        <div className="shrink-0 px-4 pb-6 pt-0">
+          {pendingImagePreview && (
+            <div className="mb-2 flex items-start gap-2 rounded-t-lg bg-dc-chat-input p-3">
+              <div className="relative">
+                <img
+                  src={pendingImagePreview}
+                  alt="Selected"
+                  className="h-20 w-20 rounded-lg object-cover"
+                />
+                <button
+                  onClick={cancelImageSelection}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-dc-danger p-0.5 text-white hover:brightness-110"
+                  title="Remove image"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+          <div className={`rounded-lg bg-dc-chat-input px-4 ${pendingImagePreview ? "rounded-t-none" : ""}`}>
+            <form onSubmit={handleSubmit} className="flex items-end gap-2 py-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isSending}
+                className="mb-0.5 flex-shrink-0 rounded-md p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary disabled:opacity-30"
+                title="Attach image"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCamera(true)}
+                disabled={isSending}
+                className="mb-0.5 flex-shrink-0 rounded-md p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary disabled:opacity-30"
+                title="Take photo"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+              <textarea
+                ref={textareaRef}
+                value={newMessage}
+                onChange={(e) => {
+                  setNewMessage(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 96) + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+                placeholder={pendingImage ? "Add a caption..." : `Message ${isDm ? "@" : "#"}${conversationTitle}`}
+                rows={1}
+                className="min-w-0 flex-1 resize-none bg-transparent py-1.5 text-dc-text-primary placeholder-dc-text-muted focus:outline-none"
+                style={{ maxHeight: "96px" }}
+                disabled={isSending}
+              />
+              <button
+                type="submit"
+                disabled={(!newMessage.trim() && !pendingImage) || isSending}
+                className="mb-0.5 flex-shrink-0 rounded-md p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary disabled:opacity-30"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        </div>
+        {showCamera && (
+          <CameraCapture
+            onCapture={(file) => {
+              setPendingImage(file);
+              setPendingImagePreview(URL.createObjectURL(file));
+              setShowCamera(false);
+            }}
+            onClose={() => setShowCamera(false)}
+          />
+        )}
+      </>
+    );
+  }
+);
 
 interface MessageViewProps {
   conversationId: string;
@@ -24,7 +186,6 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [newMessage, setNewMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [activeThread, setActiveThread] = useState<Message | null>(null);
@@ -38,15 +199,10 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [pendingImage, setPendingImage] = useState<File | null>(null);
-  const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<MessageInputFormHandle>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
-  const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
   const threadTextareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentCacheRef = useRef<Map<string, FetchedAttachment>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -77,7 +233,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       isInitialLoadRef.current = false;
     }
     if (!isLoading && !activeThread) {
-      messageTextareaRef.current?.focus();
+      messageInputRef.current?.focus();
     }
   }, [isLoading]);
 
@@ -455,7 +611,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     activeThreadRef.current = null;
     setThreadReplies([]);
     setThreadMessage("");
-    requestAnimationFrame(() => messageTextareaRef.current?.focus());
+    requestAnimationFrame(() => messageInputRef.current?.focus());
   };
 
   const handleDeleteConversation = async () => {
@@ -510,52 +666,17 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     setIsRenaming(false);
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      alert("Only image files are supported.");
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      alert("Image must be under 10 MB.");
-      return;
-    }
-
-    setPendingImage(file);
-    setPendingImagePreview(URL.createObjectURL(file));
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const cancelImageSelection = () => {
-    if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview);
-    setPendingImage(null);
-    setPendingImagePreview(null);
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!newMessage.trim() && !pendingImage) || isSending) return;
-
+  const handleSendMessage = useCallback(async (text: string, image: File | null) => {
     setIsSending(true);
     try {
       let attachmentId: string | undefined;
 
-      if (pendingImage) {
-        setIsUploading(true);
-        try {
-          const attachment = await apiClient.uploadAttachment(conversationId, pendingImage);
-          attachmentId = attachment.attachmentId;
-        } finally {
-          setIsUploading(false);
-        }
-        cancelImageSelection();
+      if (image) {
+        const attachment = await apiClient.uploadAttachment(conversationId, image);
+        attachmentId = attachment.attachmentId;
       }
 
-      const messageText = newMessage.trim() || (attachmentId ? "" : "");
+      const messageText = text || (attachmentId ? "" : "");
       const encoder = new TextEncoder();
       const messageBytes = encoder.encode(messageText);
       const ciphertext = uint8ArrayToBase64(messageBytes);
@@ -572,12 +693,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         },
       });
 
-      setMessages([...messages, sentMessage]);
-      setNewMessage("");
-      if (messageTextareaRef.current) {
-        messageTextareaRef.current.style.height = "auto";
-        messageTextareaRef.current.focus();
-      }
+      setMessages((prev) => [...prev, sentMessage]);
       setTimeout(() => scrollToBottom(), 0);
       onMessageSent?.(conversationId);
     } catch (error) {
@@ -586,7 +702,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     } finally {
       setIsSending(false);
     }
-  };
+  }, [conversationId, scrollToBottom, onMessageSent]);
 
   const handleSendThreadMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -697,7 +813,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     setThreadReplies(updateReactions);
     setActiveThread((prev) => (prev ? updateReactions([prev])[0] : null));
     setReactionPickerMessageId(null);
-    messageTextareaRef.current?.focus();
+    messageInputRef.current?.focus();
 
     try {
       await apiClient.toggleReaction(conversationId, messageId, emoji);
@@ -1153,108 +1269,14 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         </div>
 
         {/* Message Input */}
-        <div className="shrink-0 px-4 pb-6 pt-0">
-          {/* Image preview */}
-          {pendingImagePreview && (
-            <div className="mb-2 flex items-start gap-2 rounded-t-lg bg-dc-chat-input p-3">
-              <div className="relative">
-                <img
-                  src={pendingImagePreview}
-                  alt="Selected"
-                  className="h-20 w-20 rounded-lg object-cover"
-                />
-                <button
-                  onClick={cancelImageSelection}
-                  className="absolute -right-1.5 -top-1.5 rounded-full bg-dc-danger p-0.5 text-white hover:brightness-110"
-                  title="Remove image"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              {isUploading && (
-                <span className="text-sm text-dc-text-muted">Uploading...</span>
-              )}
-            </div>
-          )}
-          <div className={`rounded-lg bg-dc-chat-input px-4 ${pendingImagePreview ? "rounded-t-none" : ""}`}>
-            <form onSubmit={handleSendMessage} className="flex items-end gap-2 py-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                onChange={handleImageSelect}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isSending}
-                className="mb-0.5 flex-shrink-0 rounded-md p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary disabled:opacity-30"
-                title="Attach image"
-              >
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCamera(true)}
-                disabled={isSending}
-                className="mb-0.5 flex-shrink-0 rounded-md p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary disabled:opacity-30"
-                title="Take photo"
-              >
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-              <textarea
-                ref={messageTextareaRef}
-                value={newMessage}
-                onChange={(e) => {
-                  setNewMessage(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = Math.min(e.target.scrollHeight, 96) + "px";
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage(e);
-                  }
-                }}
-                placeholder={pendingImage ? "Add a caption..." : `Message ${isDm ? "@" : "#"}${getConversationTitle()}`}
-                rows={1}
-                className="min-w-0 flex-1 resize-none bg-transparent py-1.5 text-dc-text-primary placeholder-dc-text-muted focus:outline-none"
-                style={{ maxHeight: "96px" }}
-                disabled={isSending}
-              />
-              <button
-                type="submit"
-                disabled={(!newMessage.trim() && !pendingImage) || isSending}
-                className="mb-0.5 flex-shrink-0 rounded-md p-1.5 text-dc-text-muted transition-colors hover:text-dc-text-primary disabled:opacity-30"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-
-      {/* Camera Capture Modal */}
-      {showCamera && (
-        <CameraCapture
-          onCapture={(file) => {
-            setPendingImage(file);
-            setPendingImagePreview(URL.createObjectURL(file));
-            setShowCamera(false);
-          }}
-          onClose={() => setShowCamera(false)}
+        <MessageInputForm
+          ref={messageInputRef}
+          onSend={handleSendMessage}
+          isSending={isSending}
+          conversationTitle={getConversationTitle()}
+          isDm={!!isDm}
         />
-      )}
+      </div>
 
       {/* Thread Panel */}
       {activeThread && (
@@ -1458,7 +1480,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
           className="fixed inset-0 z-10"
           onClick={() => {
             setReactionPickerMessageId(null);
-            messageTextareaRef.current?.focus();
+            messageInputRef.current?.focus();
           }}
         />
       )}
