@@ -62,10 +62,16 @@ public interface IUserGrain : IGrainWithStringKey
     Task AddContactAsync(string contactUserId);
 
     /// <summary>
-    /// Removes a user from contacts.
+    /// Removes a user from contacts (bidirectional).
     /// Requires: Caller must be the user themselves.
     /// </summary>
     Task RemoveContactAsync(string contactUserId);
+
+    /// <summary>
+    /// Removes a contact added by a peer (reverse direction).
+    /// Called grain-to-grain by the other user's RemoveContactAsync.
+    /// </summary>
+    Task RemoveContactByPeerAsync(string peerUserId);
 
     /// <summary>
     /// Gets the list of contact user IDs.

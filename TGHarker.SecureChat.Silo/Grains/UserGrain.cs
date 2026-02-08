@@ -1,6 +1,7 @@
 using Orleans;
 using Orleans.Providers;
 using Orleans.Runtime;
+using Orleans.Streams;
 using TGHarker.SecureChat.Contracts.Grains;
 using TGHarker.SecureChat.Contracts.Models;
 using TGHarker.SecureChat.ServiceDefaults.Cryptography.Models;
@@ -211,9 +212,65 @@ public class UserGrain : Grain, IUserGrain
 
         if (_state.State.ContactUserIds.Remove(contactUserId))
         {
+            // Also remove any nickname for this contact
+            _state.State.ContactNicknames.Remove(contactUserId);
             await _state.WriteStateAsync();
             _logger.LogInformation("User {UserId} removed contact {ContactUserId}",
                 _state.State.UserId, contactUserId);
+
+            // Remove reverse direction (grain-to-grain)
+            try
+            {
+                var peerGrain = GrainFactory.GetGrain<IUserGrain>(contactUserId);
+                await peerGrain.RemoveContactByPeerAsync(this.GetPrimaryKeyString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to remove reverse contact for {ContactUserId}", contactUserId);
+            }
+
+            // Notify both users via SSE so open clients update in real time
+            await PublishContactRemovedEventAsync(this.GetPrimaryKeyString(), contactUserId);
+        }
+    }
+
+    public async Task RemoveContactByPeerAsync(string peerUserId)
+    {
+        // Called grain-to-grain — no ValidateAccess
+        if (_state.State.ContactUserIds.Remove(peerUserId))
+        {
+            _state.State.ContactNicknames.Remove(peerUserId);
+            await _state.WriteStateAsync();
+            _logger.LogInformation("User {UserId} had contact {PeerUserId} removed by peer",
+                _state.State.UserId, peerUserId);
+        }
+    }
+
+    private async Task PublishContactRemovedEventAsync(string removedByUserId, string removedContactUserId)
+    {
+        try
+        {
+            var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
+            var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = "contact_removed",
+                removedByUserId,
+                removedContactUserId
+            }, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+
+            // Notify both users
+            foreach (var userId in new[] { removedByUserId, removedContactUserId })
+            {
+                var userStream = streamProvider.GetStream<string>(StreamId.Create("UserEvents", userId));
+                await userStream.OnNextAsync(eventJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish contact_removed event");
         }
     }
 

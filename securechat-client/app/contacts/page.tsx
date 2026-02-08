@@ -10,7 +10,7 @@ import SplashScreen from "@/components/SplashScreen";
 import AuthGuard from "@/components/AuthGuard";
 import ContactPickerModal from "@/components/ContactPickerModal";
 import InviteGenerator from "@/components/InviteGenerator";
-import { useUnreadCount } from "@/lib/use-unread-count";
+import { useUserEvents } from "@/contexts/UserEventsContext";
 
 type TabView = "chats" | "contacts";
 
@@ -22,7 +22,7 @@ function ContactsContent() {
   const [activeTab, setActiveTab] = useState<TabView>("contacts");
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showInviteGenerator, setShowInviteGenerator] = useState(false);
-  const unreadCount = useUnreadCount();
+  const { totalUnreadCount: unreadCount } = useUserEvents();
 
   useEffect(() => {
     if (accessToken) {

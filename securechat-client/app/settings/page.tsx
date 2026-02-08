@@ -6,7 +6,7 @@ import { apiClient, type UserProfile } from "@/lib/api-client";
 import SplashScreen from "@/components/SplashScreen";
 import AuthGuard from "@/components/AuthGuard";
 import NotificationSettings from "@/components/NotificationSettings";
-import { useUnreadCount } from "@/lib/use-unread-count";
+import { useUserEvents } from "@/contexts/UserEventsContext";
 
 function SettingsContent() {
   const router = useRouter();
@@ -16,7 +16,7 @@ function SettingsContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const unreadCount = useUnreadCount();
+  const { totalUnreadCount: unreadCount } = useUserEvents();
 
   useEffect(() => {
     loadProfile();

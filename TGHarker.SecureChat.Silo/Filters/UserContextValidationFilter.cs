@@ -21,6 +21,7 @@ public class UserContextValidationFilter : IIncomingGrainCallFilter
         "GetContactInfoAsync",  // Allow getting basic contact info for display
         "SendNotificationAsync",      // Called grain-to-grain with sender's context, not recipient's
         "IncrementUnseenCountAsync",  // Called grain-to-grain from ConversationGrain
+        "RemoveContactByPeerAsync",   // Called grain-to-grain from peer UserGrain
         "ReceiveReminder"             // Called by Orleans reminder system, no user context
     };
 

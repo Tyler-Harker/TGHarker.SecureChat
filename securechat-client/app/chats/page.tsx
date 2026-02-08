@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserEvents } from "@/contexts/UserEventsContext";
 import { apiClient, type Conversation, type Contact } from "@/lib/api-client";
 import ConversationList from "@/components/ConversationList";
 import ContactsPanel from "@/components/ContactsPanel";
@@ -18,150 +19,72 @@ function ChatsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, logout, accessToken } = useAuth();
+  const { unreadCounts, totalUnreadCount, clearUnreadCount, setActiveConversation, subscribe } = useUserEvents();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabView>("chats");
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showInviteGenerator, setShowInviteGenerator] = useState(false);
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
-  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const activeTabRef = useRef<TabView>("chats");
-  const userEventSourceRef = useRef<EventSource | null>(null);
-  const selectedConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (accessToken) {
       apiClient.setAccessToken(accessToken);
       loadConversations();
-      // Load persisted unseen counts
-      apiClient.getUnseenCounts().then((counts) => {
-        const mapped: Record<string, number> = {};
-        for (const [key, value] of Object.entries(counts)) {
-          if (value > 0) mapped[key] = value;
-        }
-        setUnreadCounts(mapped);
-      }).catch(() => {});
     }
   }, [accessToken]);
 
-  // User-level SSE for events like conversation_created (works even without a conversation open)
+  // Subscribe to user-level SSE events for conversation list management
   useEffect(() => {
-    if (!accessToken) return;
-
-    let cancelled = false;
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-    let retryDelay = 1000;
-    const MAX_RETRY_DELAY = 30000;
-
-    const connect = () => {
-      if (cancelled) return;
-
-      if (userEventSourceRef.current) {
-        userEventSourceRef.current.close();
-        userEventSourceRef.current = null;
+    const unsubscribe = subscribe((data) => {
+      if (data.type === "conversation_created") {
+        const newConversation = data.conversation as Conversation;
+        setConversations((prev) => {
+          if (prev.some((c) => c.conversationId === newConversation.conversationId)) return prev;
+          return [newConversation, ...prev];
+        });
+      } else if (data.type === "new_message_indicator") {
+        const convId = data.conversationId as string;
+        // Update messageCount and lastActivityAt, move conversation to top
+        setConversations((prev) => {
+          const idx = prev.findIndex((c) => c.conversationId === convId);
+          if (idx === -1) return prev;
+          const updated = {
+            ...prev[idx],
+            messageCount: prev[idx].messageCount + 1,
+            lastActivityAt: new Date().toISOString(),
+          };
+          const next = [...prev];
+          next.splice(idx, 1);
+          return [updated, ...next];
+        });
+      } else if (data.type === "conversation_renamed") {
+        const convId = data.conversationId as string;
+        const newName = (data.name as string) || null;
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.conversationId === convId ? { ...c, name: newName } : c
+          )
+        );
       }
+    });
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5280";
-      const sseUrl = `${apiUrl}/api/users/me/events?access_token=${accessToken}`;
-      const eventSource = new EventSource(sseUrl);
-      userEventSourceRef.current = eventSource;
-
-      eventSource.onopen = () => {
-        retryDelay = 1000;
-      };
-
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "conversation_created") {
-            const newConversation = data.conversation as Conversation;
-            setConversations((prev) => {
-              if (prev.some((c) => c.conversationId === newConversation.conversationId)) return prev;
-              return [newConversation, ...prev];
-            });
-          } else if (data.type === "new_message_indicator") {
-            const convId = data.conversationId as string;
-            // Update messageCount and lastActivityAt, move conversation to top
-            setConversations((prev) => {
-              const idx = prev.findIndex((c) => c.conversationId === convId);
-              if (idx === -1) return prev;
-              const updated = {
-                ...prev[idx],
-                messageCount: prev[idx].messageCount + 1,
-                lastActivityAt: new Date().toISOString(),
-              };
-              const next = [...prev];
-              next.splice(idx, 1);
-              return [updated, ...next];
-            });
-            // Don't count as unread if this conversation is currently being viewed
-            if (convId !== selectedConversationIdRef.current) {
-              setUnreadCounts((prev) => ({
-                ...prev,
-                [convId]: (prev[convId] || 0) + 1,
-              }));
-            }
-          } else if (data.type === "conversation_renamed") {
-            const convId = data.conversationId as string;
-            const newName = (data.name as string) || null;
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.conversationId === convId ? { ...c, name: newName } : c
-              )
-            );
-          }
-        } catch (err) {
-          console.error("Failed to parse user SSE event:", err);
-        }
-      };
-
-      eventSource.onerror = () => {
-        eventSource.close();
-        userEventSourceRef.current = null;
-        if (cancelled) return;
-
-        retryTimeout = setTimeout(() => {
-          retryTimeout = null;
-          if (!cancelled) connect();
-        }, retryDelay);
-        retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
-      };
-    };
-
-    connect();
-
-    return () => {
-      cancelled = true;
-      if (retryTimeout) clearTimeout(retryTimeout);
-      if (userEventSourceRef.current) {
-        userEventSourceRef.current.close();
-        userEventSourceRef.current = null;
-      }
-    };
-  }, [accessToken]);
+    return unsubscribe;
+  }, [subscribe]);
 
   // Handle conversation query param
   useEffect(() => {
     const conversationId = searchParams.get("conversation");
     if (conversationId && !isLoading) {
       setSelectedConversationId(conversationId);
-      selectedConversationIdRef.current = conversationId;
+      setActiveConversation(conversationId);
       setActiveTab("chats");
-      // Clear unread for the newly selected conversation
-      setUnreadCounts((prev) => {
-        if (!prev[conversationId]) return prev;
-        const next = { ...prev };
-        delete next[conversationId];
-        return next;
-      });
-      // Persist the clear on the backend
-      apiClient.clearUnseenCount(conversationId).catch(() => {});
     } else if (!conversationId && !isLoading) {
       setSelectedConversationId(null);
-      selectedConversationIdRef.current = null;
+      setActiveConversation(null);
     }
-  }, [searchParams, isLoading]);
+  }, [searchParams, isLoading, setActiveConversation]);
 
   const loadConversations = async () => {
     try {
@@ -217,12 +140,7 @@ function ChatsContent() {
   };
 
   const handleSelectConversation = (conversationId: string) => {
-    setUnreadCounts((prev) => {
-      if (!prev[conversationId]) return prev;
-      const next = { ...prev };
-      delete next[conversationId];
-      return next;
-    });
+    clearUnreadCount(conversationId);
     router.push(`/chats?conversation=${conversationId}`, { scroll: false });
   };
 
@@ -269,18 +187,9 @@ function ChatsContent() {
     );
   };
 
-  const handleUnreadActivity = useCallback(() => {
-    if (activeTabRef.current !== "chats") {
-      setUnreadChatCount((prev) => prev + 1);
-    }
-  }, []);
-
   const handleSetActiveTab = (tab: TabView) => {
     setActiveTab(tab);
     activeTabRef.current = tab;
-    if (tab === "chats") {
-      setUnreadChatCount(0);
-    }
   };
 
   if (isLoading) {
@@ -302,9 +211,9 @@ function ChatsContent() {
               }`}
             >
               Chats
-              {unreadChatCount > 0 && activeTab !== "chats" && (
+              {totalUnreadCount > 0 && (
                 <span className="absolute -right-1 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-dc-danger px-1 text-[10px] font-bold text-white">
-                  {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                  {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
                 </span>
               )}
             </button>
@@ -386,7 +295,7 @@ function ChatsContent() {
           {/* Keep MessageView mounted (hidden) when on contacts tab so SSE stays alive for unread badge */}
           {selectedConversationId && (
             <div className={activeTab === "chats" ? "flex min-h-0 h-full flex-col" : "hidden"}>
-              <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
+              <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
             </div>
           )}
           {(activeTab !== "chats" || !selectedConversationId) && (
@@ -416,7 +325,7 @@ function ChatsContent() {
       {/* Mobile Layout */}
       <div className="flex min-h-0 flex-1 flex-col md:hidden">
         {selectedConversationId ? (
-          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
+          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-dc-header-border bg-dc-sidebar p-4">

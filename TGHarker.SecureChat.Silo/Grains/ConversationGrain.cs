@@ -412,28 +412,26 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
         var indicatorStreamProvider = this.GetStreamProvider("ConversationStreamProvider");
         foreach (var participantId in _state.State.ParticipantUserIds)
         {
+            // Persist unseen count first — this is the critical operation and must not
+            // be blocked by broadcast failures (e.g. ValidateAccess in GetConversationIdsAsync).
+            if (participantId != senderUserId)
+            {
+                try
+                {
+                    var userGrain = GrainFactory.GetGrain<IUserGrain>(participantId);
+                    await userGrain.IncrementUnseenCountAsync(_state.State.ConversationId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to increment unseen count for user {UserId}", participantId);
+                }
+            }
+
             try
             {
                 // Publish to user-level stream so sidebar message count updates for all participants
                 var userStream = indicatorStreamProvider.GetStream<string>(StreamId.Create("UserEvents", participantId));
                 await userStream.OnNextAsync(indicatorJson);
-
-                // Also publish to existing conversation streams for in-conversation listeners
-                var userGrain = GrainFactory.GetGrain<IUserGrain>(participantId);
-                var userConvIds = await userGrain.GetConversationIdsAsync();
-
-                foreach (var convId in userConvIds)
-                {
-                    if (convId == _state.State.ConversationId) continue;
-                    var stream = indicatorStreamProvider.GetStream<string>(StreamId.Create("ConversationEvents", convId));
-                    await stream.OnNextAsync(indicatorJson);
-                }
-
-                // Persist unseen count for non-sender participants
-                if (participantId != senderUserId)
-                {
-                    await userGrain.IncrementUnseenCountAsync(_state.State.ConversationId);
-                }
             }
             catch (Exception ex)
             {

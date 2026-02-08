@@ -47,6 +47,9 @@ function AuthSyncWrapper({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Re-export UserEventsProvider so layout can nest it inside AuthProvider
+export { UserEventsProvider } from "@/contexts/UserEventsContext";
+
 const RETURN_URL_KEY = "auth_return_url";
 
 export function storeReturnUrl(url: string) {

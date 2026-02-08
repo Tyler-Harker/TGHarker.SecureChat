@@ -97,7 +97,7 @@ export default function ConversationList({
           <button
             key={conversation.conversationId}
             onClick={() => onSelect(conversation.conversationId)}
-            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition-colors ${
               isSelected
                 ? "bg-dc-selected-sidebar"
                 : "hover:bg-dc-hover-sidebar"

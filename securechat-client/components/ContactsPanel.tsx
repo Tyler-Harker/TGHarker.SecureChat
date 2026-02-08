@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, type Contact } from "@/lib/api-client";
+import { useUserEvents } from "@/contexts/UserEventsContext";
 import UserAvatar from "./UserAvatar";
 
 interface ContactsPanelProps {
@@ -14,6 +15,7 @@ interface ContactsPanelProps {
 
 export default function ContactsPanel({ onClose, onStartConversation, onGenerateInvite, showHeader = true }: ContactsPanelProps) {
   const router = useRouter();
+  const { subscribe } = useUserEvents();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,10 +24,25 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
   const [error, setError] = useState<string | null>(null);
   const [editingNickname, setEditingNickname] = useState<string | null>(null);
   const [nicknameValue, setNicknameValue] = useState("");
+  const [confirmRemoveContact, setConfirmRemoveContact] = useState<string | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
   useEffect(() => {
     loadContacts();
   }, []);
+
+  // Listen for real-time contact removal events
+  useEffect(() => {
+    return subscribe((data) => {
+      if (data.type === "contact_removed") {
+        const removedBy = data.removedByUserId as string;
+        const removedContact = data.removedContactUserId as string;
+        setContacts((prev) =>
+          prev.filter((c) => c.userId !== removedBy && c.userId !== removedContact)
+        );
+      }
+    });
+  }, [subscribe]);
 
   const loadContacts = async () => {
     try {
@@ -59,11 +76,15 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
   };
 
   const handleRemoveContact = async (contactUserId: string) => {
+    setIsRemoving(true);
     try {
       await apiClient.removeContact(contactUserId);
       setContacts(contacts.filter((c) => c.userId !== contactUserId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove contact");
+    } finally {
+      setIsRemoving(false);
+      setConfirmRemoveContact(null);
     }
   };
 
@@ -310,7 +331,7 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
                         </button>
                       )}
                       <button
-                        onClick={() => handleRemoveContact(contact.userId)}
+                        onClick={() => setConfirmRemoveContact(contact.userId)}
                         className="rounded p-1.5 text-dc-text-muted transition-colors hover:bg-dc-hover-sidebar hover:text-dc-danger"
                         title="Remove contact"
                       >
@@ -331,6 +352,36 @@ export default function ContactsPanel({ onClose, onStartConversation, onGenerate
           </div>
         )}
       </div>
+
+      {/* Remove Contact Confirmation Dialog */}
+      {confirmRemoveContact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-lg bg-dc-modal-bg p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-white">
+              Remove Contact?
+            </h3>
+            <p className="mb-6 text-dc-text-secondary">
+              This will remove this contact for everyone. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmRemoveContact(null)}
+                disabled={isRemoving}
+                className="flex-1 rounded px-4 py-2 font-medium text-dc-text-primary transition-colors bg-dc-hover-sidebar hover:bg-dc-selected-sidebar disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRemoveContact(confirmRemoveContact)}
+                disabled={isRemoving}
+                className="flex-1 rounded bg-dc-danger px-4 py-2 font-medium text-white transition-colors hover:brightness-110 disabled:opacity-50"
+              >
+                {isRemoving ? "Removing..." : "Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
