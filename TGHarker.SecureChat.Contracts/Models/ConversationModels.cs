@@ -3,6 +3,15 @@ using Orleans;
 namespace TGHarker.SecureChat.Contracts.Models;
 
 [GenerateSerializer]
+public enum RetentionPeriod
+{
+    TwentyFourHours = 24,
+    SeventyTwoHours = 72,
+    SevenDays = 168,
+    ThirtyDays = 720
+}
+
+[GenerateSerializer]
 public record ConversationDto(
     Guid ConversationId,
     List<string> ParticipantUserIds,
@@ -10,7 +19,9 @@ public record ConversationDto(
     DateTime CreatedAt,
     DateTime LastActivityAt,
     int MessageCount,
-    int CurrentKeyVersion
+    int CurrentKeyVersion,
+    RetentionPeriod RetentionPolicy,
+    string? Name = null
 );
 
 [GenerateSerializer]
@@ -24,5 +35,6 @@ public record ConversationSummaryDto(
     Guid ConversationId,
     List<string> ParticipantUserIds,
     DateTime LastActivityAt,
-    int MessageCount
+    int MessageCount,
+    string? Name = null
 );

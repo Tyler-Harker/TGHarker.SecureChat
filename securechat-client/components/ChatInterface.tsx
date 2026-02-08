@@ -119,6 +119,7 @@ export default function ChatInterface() {
       const conversation = await apiClient.createConversation({
         participantUserIds,
         encryptedConversationKeys,
+        retentionPolicy: 168, // Default 7 days for inline creation
       });
 
       // Add the new conversation to the list and select it

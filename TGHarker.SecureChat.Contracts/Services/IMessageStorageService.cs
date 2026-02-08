@@ -17,4 +17,10 @@ public interface IMessageStorageService
     /// Retrieves multiple messages by their IDs for a specific conversation.
     /// </summary>
     Task<List<MessageDto>> GetMessagesByConversationAsync(Guid conversationId, List<Guid> messageIds);
+
+    /// <summary>
+    /// Deletes multiple message blobs from storage.
+    /// Continues deleting remaining messages if individual deletions fail.
+    /// </summary>
+    Task DeleteMessagesAsync(Guid conversationId, List<Guid> messageIds);
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiClient, type Contact } from "@/lib/api-client";
+import { apiClient, type Contact, type RetentionPeriod } from "@/lib/api-client";
 
 export default function NewConversationPage() {
   const router = useRouter();
@@ -14,6 +14,7 @@ export default function NewConversationPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [retentionPolicy, setRetentionPolicy] = useState<RetentionPeriod>(168);
 
   const loadContacts = useCallback(async () => {
     try {
@@ -70,6 +71,7 @@ export default function NewConversationPage() {
       const conversation = await apiClient.createConversation({
         participantUserIds,
         encryptedConversationKeys,
+        retentionPolicy,
       });
 
       // Navigate back to chats with the new conversation selected
@@ -180,6 +182,26 @@ export default function NewConversationPage() {
               </p>
             </div>
           )}
+
+          {/* Message Retention */}
+          <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Message Retention
+            </label>
+            <select
+              value={retentionPolicy}
+              onChange={(e) => setRetentionPolicy(Number(e.target.value) as RetentionPeriod)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              <option value={24}>24 hours</option>
+              <option value={72}>3 days</option>
+              <option value={168}>7 days (default)</option>
+              <option value={720}>30 days</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Messages will be automatically deleted after this period
+            </p>
+          </div>
 
           {/* Contact List */}
           <div className="bg-white dark:bg-gray-800">

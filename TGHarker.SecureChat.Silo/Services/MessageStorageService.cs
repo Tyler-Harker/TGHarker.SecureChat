@@ -112,6 +112,25 @@ public class MessageStorageService : IMessageStorageService
         }
     }
 
+    public async Task DeleteMessagesAsync(Guid conversationId, List<Guid> messageIds)
+    {
+        var containerClient = _blobServiceClient.GetBlobContainerClient(MessagesContainerName);
+        foreach (var messageId in messageIds)
+        {
+            try
+            {
+                var blobName = $"{conversationId}/{messageId}.json";
+                var blobClient = containerClient.GetBlobClient(blobName);
+                await blobClient.DeleteIfExistsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete message {MessageId} during retention cleanup", messageId);
+            }
+        }
+        _logger.LogInformation("Deleted {Count} expired messages from conversation {ConversationId}", messageIds.Count, conversationId);
+    }
+
     public async Task AddReplyToMessageAsync(Guid parentMessageId, Guid replyMessageId)
     {
         // This requires knowing the conversation ID to locate the blob

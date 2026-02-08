@@ -25,7 +25,10 @@ function ChatsContent() {
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showInviteGenerator, setShowInviteGenerator] = useState(false);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const activeTabRef = useRef<TabView>("chats");
+  const userEventSourceRef = useRef<EventSource | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (accessToken) {
@@ -34,14 +37,119 @@ function ChatsContent() {
     }
   }, [accessToken]);
 
+  // User-level SSE for events like conversation_created (works even without a conversation open)
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000;
+    const MAX_RETRY_DELAY = 30000;
+
+    const connect = () => {
+      if (cancelled) return;
+
+      if (userEventSourceRef.current) {
+        userEventSourceRef.current.close();
+        userEventSourceRef.current = null;
+      }
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5280";
+      const sseUrl = `${apiUrl}/api/users/me/events?access_token=${accessToken}`;
+      const eventSource = new EventSource(sseUrl);
+      userEventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        retryDelay = 1000;
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "conversation_created") {
+            const newConversation = data.conversation as Conversation;
+            setConversations((prev) => {
+              if (prev.some((c) => c.conversationId === newConversation.conversationId)) return prev;
+              return [newConversation, ...prev];
+            });
+          } else if (data.type === "new_message_indicator") {
+            const convId = data.conversationId as string;
+            // Update messageCount and lastActivityAt, move conversation to top
+            setConversations((prev) => {
+              const idx = prev.findIndex((c) => c.conversationId === convId);
+              if (idx === -1) return prev;
+              const updated = {
+                ...prev[idx],
+                messageCount: prev[idx].messageCount + 1,
+                lastActivityAt: new Date().toISOString(),
+              };
+              const next = [...prev];
+              next.splice(idx, 1);
+              return [updated, ...next];
+            });
+            // Don't count as unread if this conversation is currently being viewed
+            if (convId !== selectedConversationIdRef.current) {
+              setUnreadCounts((prev) => ({
+                ...prev,
+                [convId]: (prev[convId] || 0) + 1,
+              }));
+            }
+          } else if (data.type === "conversation_renamed") {
+            const convId = data.conversationId as string;
+            const newName = (data.name as string) || null;
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.conversationId === convId ? { ...c, name: newName } : c
+              )
+            );
+          }
+        } catch (err) {
+          console.error("Failed to parse user SSE event:", err);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        userEventSourceRef.current = null;
+        if (cancelled) return;
+
+        retryTimeout = setTimeout(() => {
+          retryTimeout = null;
+          if (!cancelled) connect();
+        }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (userEventSourceRef.current) {
+        userEventSourceRef.current.close();
+        userEventSourceRef.current = null;
+      }
+    };
+  }, [accessToken]);
+
   // Handle conversation query param
   useEffect(() => {
     const conversationId = searchParams.get("conversation");
     if (conversationId && !isLoading) {
       setSelectedConversationId(conversationId);
+      selectedConversationIdRef.current = conversationId;
       setActiveTab("chats");
+      // Clear unread for the newly selected conversation
+      setUnreadCounts((prev) => {
+        if (!prev[conversationId]) return prev;
+        const next = { ...prev };
+        delete next[conversationId];
+        return next;
+      });
     } else if (!conversationId && !isLoading) {
       setSelectedConversationId(null);
+      selectedConversationIdRef.current = null;
     }
   }, [searchParams, isLoading]);
 
@@ -99,6 +207,12 @@ function ChatsContent() {
   };
 
   const handleSelectConversation = (conversationId: string) => {
+    setUnreadCounts((prev) => {
+      if (!prev[conversationId]) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
     router.push(`/chats?conversation=${conversationId}`, { scroll: false });
   };
 
@@ -120,6 +234,29 @@ function ChatsContent() {
       if (prev.some((c) => c.conversationId === conversation.conversationId)) return prev;
       return [conversation, ...prev];
     });
+  };
+
+  const handleMessageSent = (convId: string) => {
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.conversationId === convId);
+      if (idx === -1) return prev;
+      const updated = {
+        ...prev[idx],
+        messageCount: prev[idx].messageCount + 1,
+        lastActivityAt: new Date().toISOString(),
+      };
+      const next = [...prev];
+      next.splice(idx, 1);
+      return [updated, ...next];
+    });
+  };
+
+  const handleRenameConversation = (convId: string, newName: string | null) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.conversationId === convId ? { ...c, name: newName } : c
+      )
+    );
   };
 
   const handleUnreadActivity = useCallback(() => {
@@ -208,7 +345,7 @@ function ChatsContent() {
             <>
               <div className="border-b border-gray-200 p-4 dark:border-gray-700">
                 <button
-                  onClick={() => setShowContactPicker(true)}
+                  onClick={() => router.push("/conversations/new")}
                   className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700"
                 >
                   + New Conversation
@@ -219,6 +356,7 @@ function ChatsContent() {
                   conversations={conversations}
                   selectedId={selectedConversationId}
                   onSelect={handleSelectConversation}
+                  unreadCounts={unreadCounts}
                 />
               </div>
             </>
@@ -238,7 +376,7 @@ function ChatsContent() {
           {/* Keep MessageView mounted (hidden) when on contacts tab so SSE stays alive for unread badge */}
           {selectedConversationId && (
             <div className={activeTab === "chats" ? "flex h-full flex-col" : "hidden"}>
-              <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} />
+              <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
             </div>
           )}
           {(activeTab !== "chats" || !selectedConversationId) && (
@@ -268,13 +406,13 @@ function ChatsContent() {
       {/* Mobile Layout */}
       <div className="flex flex-1 flex-col md:hidden">
         {selectedConversationId ? (
-          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} />
+          <MessageView conversationId={selectedConversationId} onBack={handleBack} onDelete={handleDeleteConversation} onConversationCreated={handleConversationCreated} onUnreadActivity={handleUnreadActivity} onRename={handleRenameConversation} onMessageSent={handleMessageSent} />
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">Chats</h1>
               <button
-                onClick={() => setShowContactPicker(true)}
+                onClick={() => router.push("/conversations/new")}
                 className="rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700"
                 title="New conversation"
               >
@@ -289,6 +427,7 @@ function ChatsContent() {
                 conversations={conversations}
                 selectedId={selectedConversationId}
                 onSelect={handleSelectConversation}
+                unreadCounts={unreadCounts}
               />
             </div>
 

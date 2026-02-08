@@ -9,12 +9,14 @@ interface ConversationListProps {
   conversations: Conversation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  unreadCounts?: Record<string, number>;
 }
 
 export default function ConversationList({
   conversations,
   selectedId,
   onSelect,
+  unreadCounts = {},
 }: ConversationListProps) {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -40,6 +42,10 @@ export default function ConversationList({
   };
 
   const getConversationTitle = (conversation: Conversation): string => {
+    if (conversation.name) {
+      return conversation.name;
+    }
+
     const otherParticipants = conversation.participantUserIds.filter(
       (id) => id !== user?.sub
     );
@@ -68,34 +74,44 @@ export default function ConversationList({
 
   return (
     <div className="divide-y divide-gray-200 dark:divide-gray-700">
-      {conversations.map((conversation) => (
-        <button
-          key={conversation.conversationId}
-          onClick={() => onSelect(conversation.conversationId)}
-          className={`w-full p-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 ${
-            selectedId === conversation.conversationId
-              ? "bg-blue-50 dark:bg-blue-900/20"
-              : ""
-          }`}
-        >
-          <div className="mb-1 flex items-center justify-between">
-            <div className="font-semibold text-gray-900 dark:text-white">
-              {getConversationTitle(conversation)}
+      {conversations.map((conversation) => {
+        const unread = unreadCounts[conversation.conversationId] || 0;
+        return (
+          <button
+            key={conversation.conversationId}
+            onClick={() => onSelect(conversation.conversationId)}
+            className={`w-full p-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 ${
+              selectedId === conversation.conversationId
+                ? "bg-blue-50 dark:bg-blue-900/20"
+                : ""
+            }`}
+          >
+            <div className="mb-1 flex items-center justify-between">
+              <div className={`${unread > 0 ? "font-bold" : "font-semibold"} text-gray-900 dark:text-white`}>
+                {getConversationTitle(conversation)}
+              </div>
+              <div className="flex items-center gap-2">
+                {unread > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-bold text-white">
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {new Date(conversation.lastActivityAt).toLocaleDateString()}
+                </span>
+              </div>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              {new Date(conversation.lastActivityAt).toLocaleDateString()}
+            <div className={`text-sm ${unread > 0 ? "font-medium text-gray-900 dark:text-gray-200" : "text-gray-600 dark:text-gray-400"}`}>
+              {conversation.messageCount} messages
+              {conversation.participantUserIds.length > 2 && (
+                <span className="ml-1">
+                  • {conversation.participantUserIds.length} participants
+                </span>
+              )}
             </div>
-          </div>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            {conversation.messageCount} messages
-            {conversation.participantUserIds.length > 2 && (
-              <span className="ml-1">
-                • {conversation.participantUserIds.length} participants
-              </span>
-            )}
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }

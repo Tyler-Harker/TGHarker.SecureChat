@@ -18,6 +18,15 @@ export interface UserRegistration {
   salt: string; // Base64
 }
 
+export type RetentionPeriod = 24 | 72 | 168 | 720;
+
+export const RETENTION_LABELS: Record<RetentionPeriod, string> = {
+  24: "24 hours",
+  72: "3 days",
+  168: "7 days",
+  720: "30 days",
+};
+
 export interface Conversation {
   conversationId: string;
   participantUserIds: string[];
@@ -26,6 +35,8 @@ export interface Conversation {
   lastActivityAt: string;
   messageCount: number;
   currentKeyVersion: number;
+  retentionPolicy: RetentionPeriod;
+  name?: string | null;
 }
 
 export interface Message {
@@ -47,6 +58,7 @@ export interface Message {
 export interface CreateConversationRequest {
   participantUserIds: string[];
   encryptedConversationKeys: Record<string, string>; // userId -> Base64-encoded encrypted key
+  retentionPolicy?: RetentionPeriod;
 }
 
 export interface PostMessageRequest {
@@ -340,6 +352,19 @@ export class ApiClient {
 
   async getConversation(conversationId: string): Promise<Conversation> {
     return this.fetch<Conversation>(`/api/conversations/${conversationId}`);
+  }
+
+  async renameConversation(
+    conversationId: string,
+    name: string | null
+  ): Promise<{ message: string }> {
+    return this.fetch<{ message: string }>(
+      `/api/conversations/${conversationId}/name`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      }
+    );
   }
 
   async deleteConversation(conversationId: string): Promise<{ message: string }> {

@@ -1,4 +1,5 @@
 using Orleans;
+using TGHarker.SecureChat.Contracts.Models;
 
 namespace TGHarker.SecureChat.Silo.Grains;
 
@@ -63,4 +64,24 @@ public class ConversationGrainState
     /// </summary>
     [Id(12)]
     public Dictionary<Guid, Dictionary<string, HashSet<string>>> MessageReactions { get; set; } = new();
+
+    /// <summary>
+    /// How long messages persist before automatic deletion.
+    /// </summary>
+    [Id(13)]
+    public RetentionPeriod RetentionPolicy { get; set; } = RetentionPeriod.SevenDays;
+
+    /// <summary>
+    /// Tracks message creation timestamps for efficient retention cleanup.
+    /// Structure: [messageId] = createdAt (UTC)
+    /// </summary>
+    [Id(14)]
+    public Dictionary<Guid, DateTime> MessageTimestamps { get; set; } = new();
+
+    /// <summary>
+    /// Optional custom name for the conversation.
+    /// When null, the UI falls back to participant-based display name.
+    /// </summary>
+    [Id(15)]
+    public string? Name { get; set; }
 }

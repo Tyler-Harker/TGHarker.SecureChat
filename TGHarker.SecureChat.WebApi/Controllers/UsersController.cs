@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Orleans;
+using Orleans.Streams;
 using TGHarker.SecureChat.Contracts.Grains;
 using TGHarker.SecureChat.Contracts.Models;
 
@@ -369,6 +370,106 @@ public class UsersController : ControllerBase
             _logger.LogError(ex, "Failed to remove nickname for contact {ContactUserId}", contactUserId);
             return StatusCode(500, new { error = "Failed to remove nickname" });
         }
+    }
+
+    /// <summary>
+    /// Server-Sent Events endpoint for user-level events (e.g. new conversations).
+    /// Accepts access token via query parameter since EventSource doesn't support custom headers.
+    /// </summary>
+    [HttpGet("me/events")]
+    [AllowAnonymous]
+    public async Task WatchUserEvents([FromQuery] string? access_token, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(access_token))
+        {
+            Response.StatusCode = 401;
+            await Response.WriteAsync("Unauthorized: Missing access token");
+            return;
+        }
+
+        string? currentUserId;
+        try
+        {
+            var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+            var token = handler.ReadJwtToken(access_token);
+            currentUserId = token.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+            if (string.IsNullOrEmpty(currentUserId))
+            {
+                Response.StatusCode = 401;
+                await Response.WriteAsync("Unauthorized: Invalid token");
+                return;
+            }
+        }
+        catch
+        {
+            Response.StatusCode = 401;
+            await Response.WriteAsync("Unauthorized: Invalid token");
+            return;
+        }
+
+        try
+        {
+            Response.Headers.Append("Content-Type", "text/event-stream");
+            Response.Headers.Append("Cache-Control", "no-cache");
+            Response.Headers.Append("Connection", "keep-alive");
+
+            await Response.WriteAsync("data: {\"type\":\"connected\"}\n\n", cancellationToken);
+            await Response.Body.FlushAsync(cancellationToken);
+
+            var streamProvider = _client.GetStreamProvider("ConversationStreamProvider");
+            var streamId = StreamId.Create("UserEvents", currentUserId);
+            var stream = streamProvider.GetStream<string>(streamId);
+
+            var channel = System.Threading.Channels.Channel.CreateUnbounded<string>();
+            var observer = new UserStreamObserver(channel.Writer);
+            var subscriptionHandle = await stream.SubscribeAsync(observer);
+
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromMinutes(30));
+
+                await foreach (var eventJson in channel.Reader.ReadAllAsync(timeoutCts.Token))
+                {
+                    var eventData = $"data: {eventJson}\n\n";
+                    await Response.WriteAsync(eventData, timeoutCts.Token);
+                    await Response.Body.FlushAsync(timeoutCts.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogDebug("User SSE connection closed for user {UserId}", currentUserId);
+            }
+            finally
+            {
+                await subscriptionHandle.UnsubscribeAsync();
+                channel.Writer.Complete();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in user SSE endpoint for user {UserId}", currentUserId);
+            Response.StatusCode = 500;
+        }
+    }
+}
+
+internal class UserStreamObserver : IAsyncObserver<string>
+{
+    private readonly System.Threading.Channels.ChannelWriter<string> _writer;
+
+    public UserStreamObserver(System.Threading.Channels.ChannelWriter<string> writer)
+    {
+        _writer = writer;
+    }
+
+    public Task OnCompletedAsync() => Task.CompletedTask;
+    public Task OnErrorAsync(Exception ex) => Task.CompletedTask;
+
+    public async Task OnNextAsync(string item, StreamSequenceToken? token = null)
+    {
+        await _writer.WriteAsync(item);
     }
 }
 

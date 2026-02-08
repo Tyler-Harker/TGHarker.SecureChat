@@ -19,7 +19,8 @@ public class UserContextValidationFilter : IIncomingGrainCallFilter
         "GetInviteAsync",       // Allow viewing invite details without auth
         "IsValidAsync",         // Allow checking invite validity without auth
         "GetContactInfoAsync",  // Allow getting basic contact info for display
-        "SendNotificationAsync" // Called grain-to-grain with sender's context, not recipient's
+        "SendNotificationAsync", // Called grain-to-grain with sender's context, not recipient's
+        "ReceiveReminder"        // Called by Orleans reminder system, no user context
     };
 
     public UserContextValidationFilter(ILogger<UserContextValidationFilter> logger)

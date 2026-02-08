@@ -13,7 +13,7 @@ public interface IConversationGrain : IGrainWithGuidKey
     /// Creates a new conversation with the specified participants.
     /// Requires: Caller must be in the participant list.
     /// </summary>
-    Task CreateAsync(List<string> participantUserIds, string createdByUserId);
+    Task CreateAsync(List<string> participantUserIds, string createdByUserId, RetentionPeriod retentionPolicy = RetentionPeriod.SevenDays);
 
     /// <summary>
     /// Gets conversation details.
@@ -101,6 +101,12 @@ public interface IConversationGrain : IGrainWithGuidKey
     /// Requires: Caller must be a participant.
     /// </summary>
     Task<Dictionary<string, List<string>>> GetMessageReactionsAsync(Guid messageId);
+
+    /// <summary>
+    /// Renames the conversation. Pass null or empty string to clear the name.
+    /// Requires: Caller must be a participant.
+    /// </summary>
+    Task RenameAsync(string? name);
 
     /// <summary>
     /// Deletes the conversation and all its messages.

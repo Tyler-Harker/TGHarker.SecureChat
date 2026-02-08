@@ -64,7 +64,7 @@ public class ConversationsController : ControllerBase
             var conversationId = Guid.NewGuid();
             var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
 
-            await conversationGrain.CreateAsync(request.ParticipantUserIds, UserId);
+            await conversationGrain.CreateAsync(request.ParticipantUserIds, UserId, request.RetentionPolicy ?? RetentionPeriod.SevenDays);
 
             // Store encrypted conversation keys for each participant
             foreach (var (userId, encryptedKey) in request.EncryptedConversationKeys)
@@ -497,6 +497,34 @@ public class ConversationsController : ControllerBase
     }
 
     /// <summary>
+    /// Rename a conversation. Pass null or empty name to clear.
+    /// </summary>
+    [HttpPut("{conversationId}/name")]
+    public async Task<ActionResult> RenameConversation(Guid conversationId, [FromBody] RenameConversationRequest request)
+    {
+        try
+        {
+            RequestContext.Set("UserId", UserId);
+            var conversationGrain = _client.GetGrain<IConversationGrain>(conversationId);
+            await conversationGrain.RenameAsync(request.Name);
+            return Ok(new { message = "Conversation renamed successfully" });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to rename conversation {ConversationId}", conversationId);
+            return StatusCode(500, new { error = "Failed to rename conversation" });
+        }
+    }
+
+    /// <summary>
     /// Delete a conversation and all its messages.
     /// This will delete the conversation for all participants.
     /// </summary>
@@ -527,11 +555,13 @@ public class ConversationsController : ControllerBase
 
 public record CreateConversationRequest(
     List<string> ParticipantUserIds,
-    Dictionary<string, byte[]> EncryptedConversationKeys
+    Dictionary<string, byte[]> EncryptedConversationKeys,
+    RetentionPeriod? RetentionPolicy = null
 );
 
 public record StoreKeyRequest(string UserId, byte[] EncryptedKey, int KeyVersion);
 public record AddParticipantRequest(string UserId);
+public record RenameConversationRequest(string? Name);
 
 /// <summary>
 /// Observer for Orleans Streams that writes events to a channel.

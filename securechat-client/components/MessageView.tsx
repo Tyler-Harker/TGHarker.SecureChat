@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiClient, type Message, type Conversation, type Contact, type ContactRequest, type FetchedAttachment } from "@/lib/api-client";
+import { apiClient, type Message, type Conversation, type Contact, type ContactRequest, type FetchedAttachment, RETENTION_LABELS } from "@/lib/api-client";
 import { base64ToUint8Array, uint8ArrayToBase64 } from "@/lib/crypto";
 import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
 
@@ -12,9 +12,11 @@ interface MessageViewProps {
   onDelete?: (conversationId: string) => void;
   onConversationCreated?: (conversation: Conversation) => void;
   onUnreadActivity?: () => void;
+  onRename?: (conversationId: string, name: string | null) => void;
+  onMessageSent?: (conversationId: string) => void;
 }
 
-export default function MessageView({ conversationId, onBack, onDelete, onConversationCreated, onUnreadActivity }: MessageViewProps) {
+export default function MessageView({ conversationId, onBack, onDelete, onConversationCreated, onUnreadActivity, onRename, onMessageSent }: MessageViewProps) {
   const { user, accessToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -36,7 +38,10 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
   const [pendingImage, setPendingImage] = useState<File | null>(null);
   const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
   const threadTextareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentCacheRef = useRef<Map<string, FetchedAttachment>>(new Map());
@@ -194,6 +199,23 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         newSet.delete(userId);
         return newSet;
       });
+    } else if (data.type === "conversation_renamed") {
+      const convId = data.conversationId as string;
+      const newName = (data.name as string) || null;
+      if (convId === conversationId) {
+        setConversation((prev) => prev ? { ...prev, name: newName } : prev);
+      }
+    } else if (data.type === "messages_expired") {
+      // Messages were removed by retention cleanup
+      const expiredIds = new Set(data.expiredMessageIds as string[]);
+      setMessages((prev) => prev.filter((m) => !expiredIds.has(m.messageId)));
+      setThreadReplies((prev) => prev.filter((m) => !expiredIds.has(m.messageId)));
+      if (activeThreadRef.current && expiredIds.has(activeThreadRef.current.messageId)) {
+        setActiveThread(null);
+        activeThreadRef.current = null;
+        setThreadReplies([]);
+        setThreadMessage("");
+      }
     }
   }, [conversationId, user?.sub, onUnreadActivity, onDelete, onBack, onConversationCreated]);
 
@@ -450,6 +472,40 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     }
   };
 
+  const renamePendingRef = useRef(false);
+
+  const handleStartRename = () => {
+    setRenameValue(conversation?.name || "");
+    setIsRenaming(true);
+    renamePendingRef.current = false;
+    requestAnimationFrame(() => renameInputRef.current?.focus());
+  };
+
+  const handleRenameSubmit = async () => {
+    if (renamePendingRef.current) return;
+    renamePendingRef.current = true;
+    const newName = renameValue.trim() || null;
+    setIsRenaming(false);
+
+    if (conversation) {
+      setConversation({ ...conversation, name: newName });
+    }
+    if (onRename) {
+      onRename(conversationId, newName);
+    }
+
+    try {
+      await apiClient.renameConversation(conversationId, newName);
+    } catch (error) {
+      console.error("Failed to rename conversation:", error);
+    }
+  };
+
+  const handleRenameCancel = () => {
+    renamePendingRef.current = true;
+    setIsRenaming(false);
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -524,6 +580,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
         messageTextareaRef.current.focus();
       }
       requestAnimationFrame(() => scrollToBottom());
+      onMessageSent?.(conversationId);
     } catch (error) {
       console.error("Failed to send message:", error);
       alert("Failed to send message");
@@ -560,6 +617,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
       setThreadMessage("");
       if (threadTextareaRef.current) threadTextareaRef.current.style.height = "auto";
       scrollThreadToBottom();
+      onMessageSent?.(conversationId);
     } catch (error) {
       console.error("Failed to send thread reply:", error);
       alert("Failed to send thread reply");
@@ -761,31 +819,63 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
               </button>
             )}
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
-                {conversation ? (() => {
-                  const otherParticipants = conversation.participantUserIds.filter(
-                    (id) => id !== user?.sub
-                  );
+              {isRenaming ? (
+                <input
+                  ref={renameInputRef}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleRenameSubmit();
+                    if (e.key === "Escape") handleRenameCancel();
+                  }}
+                  onBlur={handleRenameSubmit}
+                  maxLength={100}
+                  placeholder="Conversation name (leave empty to clear)"
+                  className="w-full rounded border border-blue-400 bg-transparent px-1 py-0.5 text-lg font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
+                    {conversation ? (conversation.name || (() => {
+                      const otherParticipants = conversation.participantUserIds.filter(
+                        (id) => id !== user?.sub
+                      );
 
-                  if (otherParticipants.length === 0) {
-                    return "You";
-                  } else if (otherParticipants.length === 1) {
-                    return getDisplayName(otherParticipants[0]);
-                  } else {
-                    const names = otherParticipants.slice(0, 2).map(getDisplayName);
-                    const remaining = otherParticipants.length - 2;
-                    if (remaining > 0) {
-                      return `${names.join(", ")} +${remaining}`;
-                    }
-                    return names.join(", ");
-                  }
-                })() : "Conversation"}
-              </h2>
+                      if (otherParticipants.length === 0) {
+                        return "You";
+                      } else if (otherParticipants.length === 1) {
+                        return getDisplayName(otherParticipants[0]);
+                      } else {
+                        const names = otherParticipants.slice(0, 2).map(getDisplayName);
+                        const remaining = otherParticipants.length - 2;
+                        if (remaining > 0) {
+                          return `${names.join(", ")} +${remaining}`;
+                        }
+                        return names.join(", ");
+                      }
+                    })()) : "Conversation"}
+                  </h2>
+                  <button
+                    onClick={handleStartRename}
+                    className="flex-shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                    title="Rename conversation"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {messages.filter((m) => !m.parentMessageId).length} messages
                 {conversation && conversation.participantUserIds.length > 2 && (
                   <span className="ml-1">
                     • {conversation.participantUserIds.length} participants
+                  </span>
+                )}
+                {conversation?.retentionPolicy && (
+                  <span className="ml-1">
+                    • {RETENTION_LABELS[conversation.retentionPolicy]} retention
                   </span>
                 )}
               </p>

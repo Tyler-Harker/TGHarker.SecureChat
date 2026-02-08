@@ -9,12 +9,13 @@ using TGHarker.SecureChat.Contracts.Services;
 namespace TGHarker.SecureChat.Silo.Grains;
 
 [StorageProvider(ProviderName = "AzureBlobStorage")]
-public class ConversationGrain : Grain, IConversationGrain
+public class ConversationGrain : Grain, IConversationGrain, IRemindable
 {
     private readonly IPersistentState<ConversationGrainState> _state;
     private readonly IMessageStorageService _messageStorage;
     private readonly ILogger<ConversationGrain> _logger;
     private IAsyncStream<string>? _eventStream;
+    private const string RetentionReminderName = "MessageRetentionCleanup";
 
     public ConversationGrain(
         [PersistentState("conversation", "AzureBlobStorage")] IPersistentState<ConversationGrainState> state,
@@ -54,7 +55,7 @@ public class ConversationGrain : Grain, IConversationGrain
         }
     }
 
-    public async Task CreateAsync(List<string> participantUserIds, string createdByUserId)
+    public async Task CreateAsync(List<string> participantUserIds, string createdByUserId, RetentionPeriod retentionPolicy = RetentionPeriod.SevenDays)
     {
         if (_state.State.IsCreated)
         {
@@ -88,9 +89,17 @@ public class ConversationGrain : Grain, IConversationGrain
         _state.State.CreatedAt = DateTime.UtcNow;
         _state.State.LastActivityAt = DateTime.UtcNow;
         _state.State.CurrentKeyVersion = 1;
+        _state.State.RetentionPolicy = retentionPolicy;
         _state.State.IsCreated = true;
 
         await _state.WriteStateAsync();
+
+        // Register reminder for periodic message retention cleanup
+        await this.RegisterOrUpdateReminder(
+            RetentionReminderName,
+            dueTime: TimeSpan.FromHours(1),
+            period: TimeSpan.FromHours(1)
+        );
 
         // Add conversation to each participant's UserGrain
         foreach (var userId in participantUserIds)
@@ -118,7 +127,9 @@ public class ConversationGrain : Grain, IConversationGrain
             CreatedAt: _state.State.CreatedAt,
             LastActivityAt: _state.State.LastActivityAt,
             MessageCount: 0,
-            CurrentKeyVersion: _state.State.CurrentKeyVersion
+            CurrentKeyVersion: _state.State.CurrentKeyVersion,
+            RetentionPolicy: _state.State.RetentionPolicy,
+            Name: null
         );
 
         var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
@@ -135,15 +146,19 @@ public class ConversationGrain : Grain, IConversationGrain
         {
             try
             {
+                // Publish to user-level stream (received even without a conversation open)
+                var userStream = streamProvider.GetStream<string>(StreamId.Create("UserEvents", userId));
+                await userStream.OnNextAsync(eventJson);
+
+                // Also publish to existing conversation streams for in-conversation SSE listeners
                 var userGrain = GrainFactory.GetGrain<IUserGrain>(userId);
                 var userConversationIds = await userGrain.GetConversationIdsAsync();
 
                 foreach (var userConvId in userConversationIds)
                 {
-                    // Skip the newly created conversation — no one is subscribed to it yet
                     if (userConvId == conversationId) continue;
 
-                    var stream = streamProvider.GetStream<string>("ConversationEvents", userConvId);
+                    var stream = streamProvider.GetStream<string>(StreamId.Create("ConversationEvents", userConvId));
                     await stream.OnNextAsync(eventJson);
                 }
             }
@@ -170,7 +185,9 @@ public class ConversationGrain : Grain, IConversationGrain
             CreatedAt: _state.State.CreatedAt,
             LastActivityAt: _state.State.LastActivityAt,
             MessageCount: _state.State.MessageCount,
-            CurrentKeyVersion: _state.State.CurrentKeyVersion
+            CurrentKeyVersion: _state.State.CurrentKeyVersion,
+            RetentionPolicy: _state.State.RetentionPolicy,
+            Name: _state.State.Name
         ));
     }
 
@@ -313,9 +330,11 @@ public class ConversationGrain : Grain, IConversationGrain
         );
 
         // Update conversation state
+        var now = DateTime.UtcNow;
         _state.State.MessageIds.Add(messageId);
+        _state.State.MessageTimestamps[messageId] = now;
         _state.State.MessageCount++;
-        _state.State.LastActivityAt = DateTime.UtcNow;
+        _state.State.LastActivityAt = now;
 
         // Track reply relationship
         if (message.ParentMessageId.HasValue)
@@ -393,18 +412,20 @@ public class ConversationGrain : Grain, IConversationGrain
         var indicatorStreamProvider = this.GetStreamProvider("ConversationStreamProvider");
         foreach (var participantId in _state.State.ParticipantUserIds)
         {
-            if (participantId == senderUserId) continue;
-
             try
             {
+                // Publish to user-level stream so sidebar message count updates for all participants
+                var userStream = indicatorStreamProvider.GetStream<string>(StreamId.Create("UserEvents", participantId));
+                await userStream.OnNextAsync(indicatorJson);
+
+                // Also publish to existing conversation streams for in-conversation listeners
                 var userGrain = GrainFactory.GetGrain<IUserGrain>(participantId);
                 var userConvIds = await userGrain.GetConversationIdsAsync();
 
                 foreach (var convId in userConvIds)
                 {
-                    // Skip the current conversation — it already got the full message event
                     if (convId == _state.State.ConversationId) continue;
-                    var stream = indicatorStreamProvider.GetStream<string>("ConversationEvents", convId);
+                    var stream = indicatorStreamProvider.GetStream<string>(StreamId.Create("ConversationEvents", convId));
                     await stream.OnNextAsync(indicatorJson);
                 }
             }
@@ -678,6 +699,141 @@ public class ConversationGrain : Grain, IConversationGrain
         }
 
         return Task.FromResult(new Dictionary<string, List<string>>());
+    }
+
+    public async Task ReceiveReminder(string reminderName, TickStatus status)
+    {
+        if (reminderName != RetentionReminderName) return;
+        if (!_state.State.IsCreated) return;
+
+        var retentionHours = (int)_state.State.RetentionPolicy;
+        var cutoff = DateTime.UtcNow.AddHours(-retentionHours);
+
+        var expiredIds = new List<Guid>();
+
+        // MessageIds is chronological — scan from oldest and stop at first non-expired
+        foreach (var messageId in _state.State.MessageIds)
+        {
+            if (_state.State.MessageTimestamps.TryGetValue(messageId, out var createdAt))
+            {
+                if (createdAt < cutoff)
+                {
+                    expiredIds.Add(messageId);
+                }
+                else
+                {
+                    break;
+                }
+            }
+            else
+            {
+                // Pre-migration messages without timestamps are skipped
+                continue;
+            }
+        }
+
+        if (expiredIds.Count == 0) return;
+
+        _logger.LogInformation(
+            "Retention cleanup: removing {Count} expired messages from conversation {ConversationId}",
+            expiredIds.Count, _state.State.ConversationId);
+
+        // Delete message blobs from storage
+        await _messageStorage.DeleteMessagesAsync(_state.State.ConversationId, expiredIds);
+
+        // Clean up all grain state references
+        var expiredSet = expiredIds.ToHashSet();
+        _state.State.MessageIds.RemoveAll(id => expiredSet.Contains(id));
+        foreach (var id in expiredIds)
+        {
+            _state.State.MessageTimestamps.Remove(id);
+            _state.State.MessageReadReceipts.Remove(id);
+            _state.State.MessageReactions.Remove(id);
+            _state.State.MessageReplies.Remove(id);
+
+            // Remove from parent reply lists
+            foreach (var replyList in _state.State.MessageReplies.Values)
+            {
+                replyList.Remove(id);
+            }
+        }
+
+        _state.State.MessageCount = _state.State.MessageIds.Count;
+        await _state.WriteStateAsync();
+
+        // Notify connected clients so they can remove expired messages from the UI
+        if (_eventStream != null)
+        {
+            var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = "messages_expired",
+                conversationId = _state.State.ConversationId.ToString(),
+                expiredMessageIds = expiredIds.Select(id => id.ToString()).ToList(),
+                count = expiredIds.Count
+            }, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+
+            await _eventStream.OnNextAsync(eventJson);
+        }
+    }
+
+    public async Task RenameAsync(string? name)
+    {
+        ValidateParticipantAccess();
+
+        if (!_state.State.IsCreated)
+        {
+            throw new InvalidOperationException("Conversation not created");
+        }
+
+        var trimmedName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+
+        if (trimmedName != null && trimmedName.Length > 100)
+        {
+            throw new InvalidOperationException("Conversation name must be 100 characters or less");
+        }
+
+        _state.State.Name = trimmedName;
+        await _state.WriteStateAsync();
+
+        var callingUserId = GetCallingUserId();
+
+        _logger.LogInformation("Conversation {ConversationId} renamed by {UserId}",
+            _state.State.ConversationId, callingUserId);
+
+        var eventJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "conversation_renamed",
+            conversationId = _state.State.ConversationId.ToString(),
+            name = trimmedName,
+            renamedByUserId = callingUserId
+        }, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
+
+        // Publish to per-conversation stream
+        if (_eventStream != null)
+        {
+            await _eventStream.OnNextAsync(eventJson);
+        }
+
+        // Publish to user-level streams so sidebar updates for all participants
+        var streamProvider = this.GetStreamProvider("ConversationStreamProvider");
+        foreach (var participantId in _state.State.ParticipantUserIds)
+        {
+            try
+            {
+                var userStream = streamProvider.GetStream<string>(StreamId.Create("UserEvents", participantId));
+                await userStream.OnNextAsync(eventJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish conversation_renamed event to user {UserId}", participantId);
+            }
+        }
     }
 
     public async Task DeleteConversationAsync()
