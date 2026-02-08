@@ -10,6 +10,7 @@ public class MessageStorageService : IMessageStorageService
     private readonly BlobServiceClient _blobServiceClient;
     private readonly ILogger<MessageStorageService> _logger;
     private const string MessagesContainerName = "messages";
+    private const string AttachmentsContainerName = "attachments";
 
     public MessageStorageService(BlobServiceClient blobServiceClient, ILogger<MessageStorageService> logger)
     {
@@ -129,6 +130,27 @@ public class MessageStorageService : IMessageStorageService
             }
         }
         _logger.LogInformation("Deleted {Count} expired messages from conversation {ConversationId}", messageIds.Count, conversationId);
+    }
+
+    public async Task DeleteAttachmentsAsync(Guid conversationId, List<Guid> attachmentIds)
+    {
+        if (attachmentIds.Count == 0) return;
+
+        var containerClient = _blobServiceClient.GetBlobContainerClient(AttachmentsContainerName);
+        foreach (var attachmentId in attachmentIds)
+        {
+            try
+            {
+                var blobName = $"{conversationId}/{attachmentId}.bin";
+                var blobClient = containerClient.GetBlobClient(blobName);
+                await blobClient.DeleteIfExistsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete attachment {AttachmentId} during retention cleanup", attachmentId);
+            }
+        }
+        _logger.LogInformation("Deleted {Count} expired attachments from conversation {ConversationId}", attachmentIds.Count, conversationId);
     }
 
     public async Task AddReplyToMessageAsync(Guid parentMessageId, Guid replyMessageId)

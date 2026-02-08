@@ -742,8 +742,21 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
             "Retention cleanup: removing {Count} expired messages from conversation {ConversationId}",
             expiredIds.Count, _state.State.ConversationId);
 
+        // Read expired messages to find associated attachments before deleting
+        var expiredMessages = await _messageStorage.GetMessagesByConversationAsync(_state.State.ConversationId, expiredIds);
+        var attachmentIds = expiredMessages
+            .Where(m => m.AttachmentId.HasValue)
+            .Select(m => m.AttachmentId!.Value)
+            .ToList();
+
         // Delete message blobs from storage
         await _messageStorage.DeleteMessagesAsync(_state.State.ConversationId, expiredIds);
+
+        // Delete associated attachment blobs
+        if (attachmentIds.Count > 0)
+        {
+            await _messageStorage.DeleteAttachmentsAsync(_state.State.ConversationId, attachmentIds);
+        }
 
         // Clean up all grain state references
         var expiredSet = expiredIds.ToHashSet();
