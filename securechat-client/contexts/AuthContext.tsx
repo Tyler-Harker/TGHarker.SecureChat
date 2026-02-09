@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useCallback } from "react";
 import { AuthProvider as OidcAuthProvider, useAuth as useOidcAuth, AuthProviderProps } from "react-oidc-context";
 import { WebStorageStateStore } from "oidc-client-ts";
 import { apiClient } from "@/lib/api-client";
+import { useAppDispatch } from "@/store/hooks";
+import { setUser, setAccessToken, clearAuth, setLoading } from "@/store/slices/authSlice";
 
 const AUTHORITY = process.env.NEXT_PUBLIC_AUTH_AUTHORITY || "https://identity.harker.dev/harker";
 const CLIENT_ID = process.env.NEXT_PUBLIC_AUTH_CLIENT_ID || "securechat-web";
@@ -32,17 +34,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Wrapper component to sync OIDC auth state with API client
+// Wrapper component to sync OIDC auth state with API client and Redux
 function AuthSyncWrapper({ children }: { children: React.ReactNode }) {
   const auth = useOidcAuth();
+  const dispatch = useAppDispatch();
+
+  useEffect(() => {
+    // Sync loading state
+    dispatch(setLoading(auth.isLoading));
+  }, [auth.isLoading, dispatch]);
 
   useEffect(() => {
     if (auth.isAuthenticated && auth.user?.access_token) {
+      // Sync with API client
       apiClient.setAccessToken(auth.user.access_token);
+
+      // Sync with Redux
+      dispatch(setAccessToken(auth.user.access_token));
+
+      if (auth.user.profile) {
+        dispatch(setUser({
+          sub: auth.user.profile.sub || '',
+          email: (auth.user.profile.email as string) || '',
+          name: (auth.user.profile.name as string) || '',
+        }));
+      }
     } else {
+      // Clear API client and Redux
       apiClient.clearAccessToken();
+      dispatch(clearAuth());
     }
-  }, [auth.isAuthenticated, auth.user?.access_token]);
+  }, [auth.isAuthenticated, auth.user?.access_token, auth.user?.profile, dispatch]);
 
   return <>{children}</>;
 }

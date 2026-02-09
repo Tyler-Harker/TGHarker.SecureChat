@@ -55,6 +55,13 @@ builder.UseOrleans(siloBuilder =>
         options.ContainerName = "securechat-grainstate";
     });
 
+    // Add attachments storage provider
+    siloBuilder.AddAzureBlobGrainStorage("attachments", options =>
+    {
+        options.BlobServiceClient = blobServiceClient;
+        options.ContainerName = "securechat-attachments";
+    });
+
     // TODO: Wrap with searchable storage after Orleans.Search is configured
     // siloBuilder.AddSearchableGrainStorage("AzureBlobStorage");
 

@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserEvents } from "@/contexts/UserEventsContext";
 import { apiClient, type Conversation, type Contact } from "@/lib/api-client";
+import { useAppDispatch } from "@/store/hooks";
+import { fetchContacts } from "@/store/slices/contactsSlice";
 import ConversationList from "@/components/ConversationList";
 import ContactsPanel from "@/components/ContactsPanel";
 import MessageView from "@/components/MessageView";
@@ -21,6 +23,7 @@ function ChatsContent() {
   const searchParams = useSearchParams();
   const { user, logout, accessToken } = useAuth();
   const { unreadCounts, totalUnreadCount, clearUnreadCount, setActiveConversation, subscribe } = useUserEvents();
+  const dispatch = useAppDispatch();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,7 +92,12 @@ function ChatsContent() {
 
   const loadConversations = async () => {
     try {
-      const conversationIds = await apiClient.getMyConversations();
+      // Load both conversations and contacts
+      const [conversationIds] = await Promise.all([
+        apiClient.getMyConversations(),
+        dispatch(fetchContacts()).unwrap(), // Load contacts into Redux
+      ]);
+
       const conversationDetails = await Promise.all(
         conversationIds.map((id) => apiClient.getConversation(id))
       );

@@ -3,24 +3,31 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiClient, type Conversation, type Contact } from "@/lib/api-client";
+import { apiClient, type Contact } from "@/lib/api-client";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { fetchConversations, fetchUnseenCounts, selectAllConversations, selectUnreadCounts } from "@/store/slices/conversationsSlice";
+import { fetchContacts } from "@/store/slices/contactsSlice";
+import { setSelectedConversation, setActiveTab } from "@/store/slices/uiSlice";
 import ConversationList from "./ConversationList";
 import MessageView from "./MessageView";
 import ContactsPanel from "./ContactsPanel";
 import SplashScreen from "./SplashScreen";
 
-type SidebarTab = "conversations" | "contacts" | "settings";
-
 export default function ChatInterface() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, logout, accessToken, isLoading: isAuthLoading } = useAuth();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selectedConversationId, setSelectedConversationId] = useState<
-    string | null
-  >(null);
+  const dispatch = useAppDispatch();
+
+  // Redux state
+  const conversations = useAppSelector(selectAllConversations);
+  const selectedConversationId = useAppSelector((state) => state.ui.selectedConversationId);
+  const activeTab = useAppSelector((state) => state.ui.activeTab);
+  const unreadCounts = useAppSelector(selectUnreadCounts);
+  const conversationsStatus = useAppSelector((state) => state.conversations.status);
+
+  // Local loading state
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<SidebarTab>("conversations");
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
@@ -37,11 +44,11 @@ export default function ChatInterface() {
   useEffect(() => {
     const conversationId = searchParams.get("conversation");
     if (conversationId && !isLoading) {
-      setSelectedConversationId(conversationId);
+      dispatch(setSelectedConversation(conversationId));
       // Clear the query param from URL
       router.replace("/", { scroll: false });
     }
-  }, [searchParams, isLoading, router]);
+  }, [searchParams, isLoading, router, dispatch]);
 
   const initializeUser = async () => {
     try {
@@ -64,14 +71,12 @@ export default function ChatInterface() {
 
   const loadConversations = async () => {
     try {
-      const conversationIds = await apiClient.getMyConversations();
-
-      // Load details for each conversation
-      const conversationDetails = await Promise.all(
-        conversationIds.map((id) => apiClient.getConversation(id))
-      );
-
-      setConversations(conversationDetails);
+      // Dispatch Redux thunks to load data
+      await Promise.all([
+        dispatch(fetchConversations()).unwrap(),
+        dispatch(fetchContacts()).unwrap(),
+        dispatch(fetchUnseenCounts()).unwrap(),
+      ]);
     } catch (error) {
       console.error("Failed to load conversations:", error);
     } finally {
@@ -84,7 +89,7 @@ export default function ChatInterface() {
   };
 
   const handleBack = () => {
-    setSelectedConversationId(null);
+    dispatch(setSelectedConversation(null));
   };
 
   const handleStartConversationWithContact = useCallback(async (contacts: Contact[]) => {
@@ -101,8 +106,8 @@ export default function ChatInterface() {
 
     if (existingConversation) {
       // Select the existing conversation
-      setSelectedConversationId(existingConversation.conversationId);
-      setActiveTab("conversations");
+      dispatch(setSelectedConversation(existingConversation.conversationId));
+      dispatch(setActiveTab("conversations"));
       return;
     }
 
@@ -122,15 +127,15 @@ export default function ChatInterface() {
         retentionPolicy: 168, // Default 7 days for inline creation
       });
 
-      // Add the new conversation to the list and select it
-      setConversations((prev) => [conversation, ...prev]);
-      setSelectedConversationId(conversation.conversationId);
-      setActiveTab("conversations");
+      // Add the new conversation to Redux and select it
+      dispatch(fetchConversations()); // Reload conversations to get the new one
+      dispatch(setSelectedConversation(conversation.conversationId));
+      dispatch(setActiveTab("conversations"));
     } catch (error) {
       console.error("Failed to create conversation:", error);
       alert("Failed to start conversation. Please try again.");
     }
-  }, [user?.sub, conversations]);
+  }, [user?.sub, conversations, dispatch]);
 
   // Settings panel content
   const renderSettings = () => (
@@ -237,7 +242,7 @@ export default function ChatInterface() {
         {/* Desktop Tab Navigation */}
         <div className="flex border-b border-gray-200 dark:border-gray-700">
           <button
-            onClick={() => setActiveTab("conversations")}
+            onClick={() => dispatch(setActiveTab("conversations"))}
             className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
               activeTab === "conversations"
                 ? "border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
@@ -247,7 +252,7 @@ export default function ChatInterface() {
             Chats
           </button>
           <button
-            onClick={() => setActiveTab("contacts")}
+            onClick={() => dispatch(setActiveTab("contacts"))}
             className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
               activeTab === "contacts"
                 ? "border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
@@ -278,14 +283,15 @@ export default function ChatInterface() {
                 <ConversationList
                   conversations={conversations}
                   selectedId={selectedConversationId}
-                  onSelect={setSelectedConversationId}
+                  onSelect={(id) => dispatch(setSelectedConversation(id))}
+                  unreadCounts={unreadCounts}
                 />
               )}
             </div>
           </>
         ) : activeTab === "contacts" ? (
           <ContactsPanel
-            onClose={() => setActiveTab("conversations")}
+            onClose={() => dispatch(setActiveTab("conversations"))}
             onStartConversation={handleStartConversationWithContact}
           />
         ) : null}
@@ -359,7 +365,8 @@ export default function ChatInterface() {
                     <ConversationList
                       conversations={conversations}
                       selectedId={selectedConversationId}
-                      onSelect={setSelectedConversationId}
+                      onSelect={(id) => dispatch(setSelectedConversation(id))}
+                      unreadCounts={unreadCounts}
                     />
                   )
                 ) : activeTab === "contacts" ? (
@@ -380,7 +387,7 @@ export default function ChatInterface() {
           <div className="safe-area-bottom border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
             <div className="flex">
               <button
-                onClick={() => setActiveTab("conversations")}
+                onClick={() => dispatch(setActiveTab("conversations"))}
                 className={`flex flex-1 flex-col items-center gap-1 py-3 ${
                   activeTab === "conversations"
                     ? "text-blue-600 dark:text-blue-400"
@@ -398,7 +405,7 @@ export default function ChatInterface() {
                 <span className="text-xs font-medium">Chats</span>
               </button>
               <button
-                onClick={() => setActiveTab("contacts")}
+                onClick={() => dispatch(setActiveTab("contacts"))}
                 className={`flex flex-1 flex-col items-center gap-1 py-3 ${
                   activeTab === "contacts"
                     ? "text-blue-600 dark:text-blue-400"
@@ -416,7 +423,7 @@ export default function ChatInterface() {
                 <span className="text-xs font-medium">Contacts</span>
               </button>
               <button
-                onClick={() => setActiveTab("settings")}
+                onClick={() => dispatch(setActiveTab("settings"))}
                 className={`flex flex-1 flex-col items-center gap-1 py-3 ${
                   activeTab === "settings"
                     ? "text-blue-600 dark:text-blue-400"

@@ -49,6 +49,9 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
     const eventSource = new EventSource(`${sseUrl}?access_token=${accessToken}`);
     eventSourceRef.current = eventSource;
 
+    // Track whether the invite was accepted to distinguish expected closure from errors
+    let wasAccepted = false;
+
     eventSource.onopen = () => {
       console.log("SSE connection opened for invite", invite.inviteId);
     };
@@ -59,8 +62,13 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
 
         if (data.type === "accepted") {
           console.log("Invite accepted by", data.displayName);
+          wasAccepted = true;
           setAcceptedByName(data.displayName);
 
+          // Close the SSE connection since we're done
+          eventSource.close();
+
+          // Navigate after a brief delay
           setTimeout(() => {
             if (onClose) {
               onClose();
@@ -75,12 +83,15 @@ export default function InviteGenerator({ onClose }: InviteGeneratorProps) {
     };
 
     eventSource.onerror = (err) => {
-      console.error("SSE connection error:", err);
+      // Only log as error if the invite wasn't accepted (unexpected closure)
+      if (!wasAccepted) {
+        console.error("SSE connection error for invite:", err);
+      }
       eventSource.close();
     };
 
     return () => {
-      console.log("Closing SSE connection");
+      console.log("Cleaning up SSE connection for invite");
       eventSource.close();
     };
   }, [invite, accessToken, router, onClose]);
