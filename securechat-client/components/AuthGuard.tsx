@@ -14,7 +14,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { isAuthenticated, isLoading: isAuthLoading, accessToken } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, accessToken, login } = useAuth();
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
@@ -23,9 +23,11 @@ export default function AuthGuard({ children }: AuthGuardProps) {
       return;
     }
 
-    // Redirect to home if not authenticated
+    // Trigger login flow if not authenticated, preserving the current URL
     if (!isAuthenticated) {
-      router.push("/");
+      const queryString = searchParams.toString();
+      const fullUrl = queryString ? `${pathname}?${queryString}` : pathname;
+      login(fullUrl);
       return;
     }
 
