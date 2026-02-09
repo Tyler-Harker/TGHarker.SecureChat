@@ -25,8 +25,11 @@ public interface IMessageStorageService
     Task DeleteMessagesAsync(Guid conversationId, List<Guid> messageIds);
 
     /// <summary>
-    /// Deletes multiple attachment blobs from storage.
-    /// Used during retention cleanup to remove attachments associated with expired messages.
+    /// [DEPRECATED] This method is no longer used for attachment deletion.
+    /// Attachments are now deleted via AttachmentGrain.DeleteAsync() to maintain
+    /// consistency with the Orleans grain approach.
+    /// Kept for interface compatibility.
     /// </summary>
+    [Obsolete("Use AttachmentGrain.DeleteAsync() instead", false)]
     Task DeleteAttachmentsAsync(Guid conversationId, List<Guid> attachmentIds);
 }

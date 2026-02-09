@@ -9,6 +9,76 @@ import UserAvatar, { getAvatarColor } from "./UserAvatar";
 import CameraCapture from "./CameraCapture";
 import { groupMessages, formatMessageTimestamp } from "@/lib/message-grouping";
 
+// Standalone AttachmentImage component (moved outside MessageView to prevent remounting on re-render)
+interface AttachmentImageProps {
+  message: Message;
+  conversationId: string;
+  attachmentCache: Map<string, FetchedAttachment>;
+  onImageLoad?: () => void;
+}
+
+function AttachmentImage({ message, conversationId, attachmentCache, onImageLoad }: AttachmentImageProps) {
+  const [attachment, setAttachment] = useState<FetchedAttachment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!message.attachmentId) return;
+
+    const cached = attachmentCache.get(message.attachmentId);
+    if (cached) {
+      setAttachment(cached);
+      setLoading(false);
+      return;
+    }
+
+    apiClient
+      .fetchAttachment(conversationId, message.attachmentId)
+      .then((result) => {
+        attachmentCache.set(message.attachmentId!, result);
+        setAttachment(result);
+      })
+      .catch((err) => console.error("Failed to fetch attachment:", err))
+      .finally(() => setLoading(false));
+  }, [message.attachmentId, conversationId, attachmentCache]);
+
+  if (!message.attachmentId) return null;
+
+  if (loading) {
+    return (
+      <div className="my-1 flex h-32 w-48 items-center justify-center rounded-lg bg-dc-hover-sidebar">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-dc-brand border-r-transparent"></div>
+      </div>
+    );
+  }
+
+  if (!attachment) return null;
+
+  return (
+    <>
+      <img
+        src={attachment.url}
+        alt={attachment.fileName}
+        className="my-1 max-h-72 max-w-md cursor-pointer rounded-lg object-contain"
+        onClick={() => setFullscreen(true)}
+        onLoad={onImageLoad}
+      />
+      {fullscreen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setFullscreen(false)}
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.fileName}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
 interface MessageInputFormProps {
   onSend: (text: string, image: File | null) => Promise<void>;
   conversationTitle: string;
@@ -945,77 +1015,17 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
     </div>
   );
 
-  const AttachmentImage = ({ message }: { message: Message }) => {
-    const [attachment, setAttachment] = useState<FetchedAttachment | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [fullscreen, setFullscreen] = useState(false);
-
-    useEffect(() => {
-      if (!message.attachmentId) return;
-
-      const cached = attachmentCacheRef.current.get(message.attachmentId);
-      if (cached) {
-        setAttachment(cached);
-        setLoading(false);
-        return;
+  // Helper for image load callback
+  const handleImageLoad = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      // Always scroll on initial load, or if user is near bottom
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+      if (shouldAutoScrollOnImageLoadRef.current || isNearBottom) {
+        scrollToBottom();
       }
-
-      apiClient
-        .fetchAttachment(conversationId, message.attachmentId)
-        .then((result) => {
-          attachmentCacheRef.current.set(message.attachmentId!, result);
-          setAttachment(result);
-        })
-        .catch((err) => console.error("Failed to fetch attachment:", err))
-        .finally(() => setLoading(false));
-    }, [message.attachmentId]);
-
-    if (!message.attachmentId) return null;
-
-    if (loading) {
-      return (
-        <div className="my-1 flex h-32 w-48 items-center justify-center rounded-lg bg-dc-hover-sidebar">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-dc-brand border-r-transparent"></div>
-        </div>
-      );
     }
-
-    if (!attachment) return null;
-
-    return (
-      <>
-        <img
-          src={attachment.url}
-          alt={attachment.fileName}
-          className="my-1 max-h-72 max-w-md cursor-pointer rounded-lg object-contain"
-          onClick={() => setFullscreen(true)}
-          onLoad={() => {
-            // Scroll to bottom when image loads
-            const container = messagesContainerRef.current;
-            if (container) {
-              // Always scroll on initial load, or if user is near bottom
-              const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-              if (shouldAutoScrollOnImageLoadRef.current || isNearBottom) {
-                scrollToBottom();
-              }
-            }
-          }}
-        />
-        {fullscreen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-            onClick={() => setFullscreen(false)}
-          >
-            <img
-              src={attachment.url}
-              alt={attachment.fileName}
-              className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
-            />
-          </div>
-        )}
-      </>
-    );
-  };
+  }, []);
 
   if (isLoading) {
     return (
@@ -1235,7 +1245,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                             {formatMessageTimestamp(message.timestamp)}
                           </span>
                         </div>
-                        {message.attachmentId && <AttachmentImage message={message} />}
+                        {message.attachmentId && <AttachmentImage message={message} conversationId={conversationId} attachmentCache={attachmentCacheRef.current} onImageLoad={handleImageLoad} />}
                         {decryptedText && (
                           <div className="mt-0.5 whitespace-pre-wrap break-words text-dc-text-primary">
                             {decryptedText}
@@ -1294,7 +1304,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                       </span>
                     </div>
                     <div className="min-w-0 flex-1">
-                      {message.attachmentId && <AttachmentImage message={message} />}
+                      {message.attachmentId && <AttachmentImage message={message} conversationId={conversationId} attachmentCache={attachmentCacheRef.current} onImageLoad={handleImageLoad} />}
                       {decryptedText && (
                         <div className="whitespace-pre-wrap break-words text-dc-text-primary">
                           {decryptedText}
@@ -1386,7 +1396,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                         {getDisplayName(activeThread.senderId)}
                       </span>
                     </div>
-                    {activeThread.attachmentId && <AttachmentImage message={activeThread} />}
+                    {activeThread.attachmentId && <AttachmentImage message={activeThread} conversationId={conversationId} attachmentCache={attachmentCacheRef.current} onImageLoad={handleImageLoad} />}
                     <div className="whitespace-pre-wrap break-words text-dc-text-primary">
                       {decryptMessage(activeThread)}
                     </div>
@@ -1439,7 +1449,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                                 {formatMessageTimestamp(reply.timestamp)}
                               </span>
                             </div>
-                            {reply.attachmentId && <AttachmentImage message={reply} />}
+                            {reply.attachmentId && <AttachmentImage message={reply} conversationId={conversationId} attachmentCache={attachmentCacheRef.current} onImageLoad={handleImageLoad} />}
                             {replyText && (
                               <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-dc-text-primary">
                                 {replyText}
@@ -1475,7 +1485,7 @@ export default function MessageView({ conversationId, onBack, onDelete, onConver
                           </span>
                         </div>
                         <div className="min-w-0 flex-1">
-                          {reply.attachmentId && <AttachmentImage message={reply} />}
+                          {reply.attachmentId && <AttachmentImage message={reply} conversationId={conversationId} attachmentCache={attachmentCacheRef.current} onImageLoad={handleImageLoad} />}
                           {replyText && (
                             <div className="whitespace-pre-wrap break-words text-sm text-dc-text-primary">
                               {replyText}

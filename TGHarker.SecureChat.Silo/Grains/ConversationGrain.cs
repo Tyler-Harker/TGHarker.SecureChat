@@ -769,10 +769,18 @@ public class ConversationGrain : Grain, IConversationGrain, IRemindable
         // Delete message blobs from storage
         await _messageStorage.DeleteMessagesAsync(_state.State.ConversationId, expiredIds);
 
-        // Delete associated attachment blobs
+        // Delete associated attachments via AttachmentGrain
         if (attachmentIds.Count > 0)
         {
-            await _messageStorage.DeleteAttachmentsAsync(_state.State.ConversationId, attachmentIds);
+            var deleteTasks = attachmentIds.Select(attachmentId =>
+            {
+                var attachmentGrain = GrainFactory.GetGrain<IAttachmentGrain>(attachmentId, _state.State.ConversationId.ToString());
+                return attachmentGrain.DeleteAsync();
+            });
+            await Task.WhenAll(deleteTasks);
+
+            _logger.LogInformation("Deleted {Count} expired attachments from conversation {ConversationId}",
+                attachmentIds.Count, _state.State.ConversationId);
         }
 
         // Clean up all grain state references

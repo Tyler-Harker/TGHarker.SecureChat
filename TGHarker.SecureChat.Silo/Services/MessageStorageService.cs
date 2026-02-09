@@ -132,25 +132,14 @@ public class MessageStorageService : IMessageStorageService
         _logger.LogInformation("Deleted {Count} expired messages from conversation {ConversationId}", messageIds.Count, conversationId);
     }
 
-    public async Task DeleteAttachmentsAsync(Guid conversationId, List<Guid> attachmentIds)
+    // Note: Attachment deletion is now handled by calling AttachmentGrain.DeleteAsync() directly
+    // This method is kept for interface compatibility but delegates to the grain approach
+    public Task DeleteAttachmentsAsync(Guid conversationId, List<Guid> attachmentIds)
     {
-        if (attachmentIds.Count == 0) return;
-
-        var containerClient = _blobServiceClient.GetBlobContainerClient(AttachmentsContainerName);
-        foreach (var attachmentId in attachmentIds)
-        {
-            try
-            {
-                var blobName = $"{conversationId}/{attachmentId}.bin";
-                var blobClient = containerClient.GetBlobClient(blobName);
-                await blobClient.DeleteIfExistsAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to delete attachment {AttachmentId} during retention cleanup", attachmentId);
-            }
-        }
-        _logger.LogInformation("Deleted {Count} expired attachments from conversation {ConversationId}", attachmentIds.Count, conversationId);
+        // Attachments are deleted via AttachmentGrain in ConversationGrain.ReceiveReminder
+        // This avoids direct blob access and uses Orleans grain approach
+        _logger.LogInformation("DeleteAttachmentsAsync called for conversation {ConversationId} - handled by AttachmentGrain", conversationId);
+        return Task.CompletedTask;
     }
 
     public async Task AddReplyToMessageAsync(Guid parentMessageId, Guid replyMessageId)

@@ -27,4 +27,10 @@ public interface IAttachmentGrain : IGrainWithGuidCompoundKey
     /// Check if this attachment exists.
     /// </summary>
     Task<bool> ExistsAsync();
+
+    /// <summary>
+    /// Delete this attachment and its data.
+    /// Used during retention cleanup.
+    /// </summary>
+    Task DeleteAsync();
 }

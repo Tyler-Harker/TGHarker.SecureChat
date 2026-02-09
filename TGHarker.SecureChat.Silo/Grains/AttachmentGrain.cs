@@ -98,4 +98,22 @@ public class AttachmentGrain : Grain, IAttachmentGrain
     {
         return Task.FromResult(_state.State.IsStored);
     }
+
+    public async Task DeleteAsync()
+    {
+        if (!_state.State.IsStored)
+        {
+            _logger.LogWarning("Attempted to delete non-existent attachment {AttachmentId}", this.GetPrimaryKey(out _));
+            return;
+        }
+
+        var attachmentId = this.GetPrimaryKey(out _);
+        var conversationId = _state.State.ConversationId;
+
+        // Clear the state
+        await _state.ClearStateAsync();
+
+        _logger.LogInformation("Deleted attachment {AttachmentId} from conversation {ConversationId}",
+            attachmentId, conversationId);
+    }
 }
